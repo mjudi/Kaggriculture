@@ -68,12 +68,16 @@ ANIMAL_PLAN = [("COW", 8), ("SHEEP", 6)]
 
 # Ongoing crops (tomato, strawberry) never need replanting once
 # established, which matters more the larger the operation gets --
-# weighted well above their seed cost would suggest for that reason.
-# Strawberry specifically is what the reference replay leaned on hardest
-# (27-40 tiles, more than every other crop combined) despite melon
-# having a higher sticker price -- melon is one-time, so the constant
-# replanting eats into that price advantage at scale.
-CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 3, "STRAWBERRY": 6, "MELON": 1}
+# weighted somewhat above their seed cost would suggest for that reason.
+# A much stronger version of this (6:1 strawberry) was tried earlier and
+# caused an 80%->25% win-rate regression, but that test also loosened
+# strawberry's planting_priority gate at the same time, so the weight
+# ratio itself was never isolated -- reverting the gate alone recovered
+# most of the loss (see planting_priority docstring), suggesting the
+# weight ratio wasn't necessarily the main culprit. This round uses a
+# deliberately gentler ratio with the gate left untouched, specifically
+# to isolate whether a modest ongoing-crop bias helps on its own.
+CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 1.5, "STRAWBERRY": 2, "MELON": 1}
 
 # Per-turn sell ceiling per item, so one big harvest doesn't land in a
 # single order and walk the price down against ourselves. Tighter caps on
@@ -353,21 +357,18 @@ def immediate_action(tile, seeds, day, money, want_coop, want_pasture, field_cou
         available = [c for c in planting_priority(day, money) if seeds.get(c, 0) > 0]
         if available:
             if field_counts:
-                # Reverted to even diversification (fewest-planted wins)
-                # rather than the CROP_WEIGHT bias tried this round.
-                # Weighting hard toward strawberry, informed by a real
-                # top-of-leaderboard replay, was tested combined with
-                # everything else in this round and cost the win rate
-                # badly (80% -> 25%). Delaying strawberry's eligibility
-                # recovered about half of that (-> 47.5%), confirming
-                # early strawberry planting while capital is still tight
-                # is a real contributor, but didn't fully close the gap,
-                # and isolating the revert alone got the best verified
-                # result of the round (92.5%, +$3,448 avg margin). The
-                # underlying idea (ongoing crops are more turn-efficient
-                # at scale) may still be right; CROP_WEIGHT is left
-                # defined above for a future, more careful attempt at it.
-                available.sort(key=lambda c: field_counts.get(c, 0))
+                # Diversification weighted by CROP_WEIGHT rather than a
+                # flat fewest-planted-count sort: dividing each crop's
+                # current count by its weight means a higher-weighted
+                # crop (ongoing crops, see CROP_WEIGHT above) gets picked
+                # more often at equal counts, but the bias still
+                # self-balances as that crop's own count grows -- it
+                # can't run away into a monoculture the way an unbounded
+                # weighted-pick could. This is an isolated retry of an
+                # earlier, much stronger version (6:1 strawberry) that
+                # regressed badly; see CROP_WEIGHT's comment for why this
+                # round changes only the ratio, not the planting gates.
+                available.sort(key=lambda c: field_counts.get(c, 0) / CROP_WEIGHT.get(c, 1))
             # Melon prioritized up to a capped target ahead of even
             # diversification: a real ladder loss (episode 90145856)
             # showed an opponent running a pure 15-tile melon monoculture

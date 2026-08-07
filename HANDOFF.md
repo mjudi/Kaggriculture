@@ -66,19 +66,29 @@ Key tunables and their current values, with the reasoning:
   otherwise near-identical build. Capped rather than unbounded — melon has a
   steep glut curve, and both the public notebook and the real opponents
   independently converged on roughly this range (4-16 tiles).
-- **Crop diversification** (everything except the melon carve-out): even
-  "fewest-planted-count-wins" diversification, not value-weighted. A
-  strawberry-weighted version (weight 6:1 over other crops) was tried and
-  tested at length — it caused a serious regression (80% win rate vs
-  `main_v1` down to 25%) that took real digging to understand. It was
-  **not** the ongoing-crop decay mechanic (see below) — that fix made zero
-  measurable difference when isolated. It traced to planting strawberry too
-  early/aggressively while capital was still tight. Reverting to even
-  diversification recovered the loss. The underlying idea (ongoing crops
-  are more turn-efficient at scale, since they don't need replanting) may
-  still be right; a `CROP_WEIGHT` dict is left defined in the file for a
-  future, more carefully isolated attempt — don't just flip it back on
-  without a proper A/B test.
+- **Crop diversification**: `CROP_WEIGHT`-weighted diversification
+  (`field_counts.get(c, 0) / CROP_WEIGHT.get(c, 1)` as the sort key,
+  instead of a flat "fewest-planted-count-wins" sort). This is a revised,
+  much gentler retry of an idea that failed badly earlier in the project:
+  a strawberry-weighted version at 6:1 over other crops caused a serious
+  regression (80% win rate vs `main_v1` down to 25%) — but that earlier
+  test *also* loosened strawberry's `planting_priority` eligibility gate
+  at the same time, so the weight ratio itself was never actually
+  isolated from the gate change. This round used `CROP_WEIGHT = {WHEAT:
+  1, CARROT: 1, TOMATO: 1.5, STRAWBERRY: 2, MELON: 1}`, left every
+  `planting_priority` gate untouched, and verified on two independent
+  batches of real games against `main_v1` (seeds 1-24 and 25-64, 64 games
+  total, same seeds run against both the pre-change and post-change
+  agent): win rate went from 64.1% (41/23) to **93.8% (60/4)** combined,
+  avg margin from +$2,636 to +$4,700, and worst-case loss improved from
+  -$6,466 to -$3,014. Also re-verified clean against `starter` (12/0) and
+  `random` (12/0), and passed self-play/single-seed sanity with both
+  sides finishing `DONE`. This confirms the underlying idea (ongoing
+  crops are more turn-efficient at scale) was sound — the earlier failure
+  was the confound (weight + gate change together, and too aggressive a
+  ratio), not the concept. **Not yet given real ladder exposure** — this
+  is a strong local result but hasn't been submitted/tested against the
+  live matchmaking pool yet.
 - **Animal program: DISABLED.** `choose_animal_program()` returns `None`
   unconditionally as its first line — read the docstring in the file, all
   the logic below that line is dead code kept for a future attempt, not
@@ -166,16 +176,26 @@ operating principle here, not a one-off caution.
 
 ## Open threads / natural next steps
 
-1. Get a fresh, large (20+ game) batch of real ladder replays on the
-   current (hand-scaling-fix) submission specifically, and re-run the
-   win/loss + hand-count-over-time analysis to confirm the fix actually
-   moved the needle on the real field, not just against `main_v1` locally.
-2. If it did help: the strawberry/ongoing-crop weighting idea is still an
-   open, plausible lever (`CROP_WEIGHT` is defined but unused) — worth a
-   properly isolated retry, changing only that one thing against a clean
-   baseline, learning from exactly how the first attempt went wrong (don't
-   let it plant early/aggressively while capital is still tight).
-3. The animal program is a real, correctly-built, currently-dead feature —
+1. **Submit the CROP_WEIGHT-retry `main.py` and get real ladder exposure.**
+   It has strong, clean local verification (see above) but has not yet
+   been tested against the live matchmaking pool. This should be the
+   next submission.
+2. Get a fresh, large (20+ game) batch of real ladder replays on the
+   current submission (hand-scaling fix + CROP_WEIGHT retry combined)
+   and re-run the win/loss + hand-count-over-time analysis to confirm
+   both changes actually moved the needle on the real field, not just
+   locally against `main_v1`. This was already overdue for the
+   hand-scaling fix alone before the CROP_WEIGHT retry stacked on top of
+   it — worth checking whether the two changes' local gains actually
+   compound against real opponents or partially overlap.
+3. If there's still room to push the ongoing-crop weighting further, it
+   was deliberately left conservative this round (strawberry 2, tomato
+   1.5 — see above) specifically to isolate the concept cleanly from the
+   earlier regression. A slightly stronger ratio could be worth a future
+   isolated retry of its own, now that the concept itself is confirmed
+   sound — but change only the ratio, one variable at a time, same as
+   this round.
+4. The animal program is a real, correctly-built, currently-dead feature —
    only worth revisiting if the core economy gets meaningfully stronger
    first (see reasoning above), and only with a full animals-on-vs-off A/B
    test before trusting it, not a re-enable-and-hope.
