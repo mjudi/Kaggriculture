@@ -176,18 +176,18 @@ operating principle here, not a one-off caution.
 
 ## Open threads / natural next steps
 
-1. **Submit the CROP_WEIGHT-retry `main.py` and get real ladder exposure.**
-   It has strong, clean local verification (see above) but has not yet
-   been tested against the live matchmaking pool. This should be the
-   next submission.
-2. Get a fresh, large (20+ game) batch of real ladder replays on the
-   current submission (hand-scaling fix + CROP_WEIGHT retry combined)
-   and re-run the win/loss + hand-count-over-time analysis to confirm
-   both changes actually moved the needle on the real field, not just
-   locally against `main_v1`. This was already overdue for the
-   hand-scaling fix alone before the CROP_WEIGHT retry stacked on top of
-   it — worth checking whether the two changes' local gains actually
-   compound against real opponents or partially overlap.
+1. **Submitted 2026-08-07** — the CROP_WEIGHT-retry `main.py` (hand-scaling
+   fix + conservative CROP_WEIGHT diversification, see above) went in as
+   submission ID `55335956`, status `PENDING` at submit time. This is now
+   one of the 2 latest-tracked submissions (the other is the older
+   `55307753`, pre-CROP_WEIGHT, public score 496.8). **No real ladder data
+   on it yet** — that's the immediate next step once games accumulate.
+2. Get a fresh, large (20+ game) batch of real ladder replays on submission
+   `55335956` specifically (hand-scaling fix + CROP_WEIGHT retry combined)
+   and re-run the win/loss + hand-count-over-time analysis to confirm both
+   changes actually moved the needle on the real field, not just locally
+   against `main_v1`. Worth checking whether the two changes' local gains
+   actually compound against real opponents or partially overlap.
 3. If there's still room to push the ongoing-crop weighting further, it
    was deliberately left conservative this round (strawberry 2, tomato
    1.5 — see above) specifically to isolate the concept cleanly from the
