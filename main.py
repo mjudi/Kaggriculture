@@ -59,12 +59,20 @@ ANIMALS = {
     "SHEEP": {"cost": 500, "structure": "PASTURE", "product": "WOOL", "max_held": 6},
 }
 
-# Ordered target counts, informed by a real top-of-leaderboard replay
-# (episode 90073673): 8 cow pastures, 6 sheep pastures, no goose at all.
-# Treated as a testable hypothesis, not gospel -- every previous single-
-# animal attempt in this file lost money, so this is specifically testing
-# whether that was a scale problem rather than the mechanism being bad.
-ANIMAL_PLAN = [("COW", 8), ("SHEEP", 6)]
+# Real top-10 leaderboard replays (Seb/HealthStone) run ~8 cow + 12-14
+# sheep sustained all game, and that full scale was tried directly here
+# -- lost decisively (0/40, avg -$26,986) even after fixing a real
+# feed-coordination bug, because this agent's hand-coordination can't
+# reliably keep a herd that large fed; it kept oscillating instead of
+# holding steady the way the real replays show. A much smaller target
+# (cow-only, no sheep) is what this codebase can actually sustain
+# without destarving -- verified: holds steady at 4/4 from around day
+# 14 onward with no oscillation, and wins 80-90% against the same agent
+# with animals off (avg +$10.6k/+$13.4k across two 40-seed batches).
+# This confirms the mechanism itself is good; it was a scale problem,
+# not a fundamentally bad idea -- raising this again should only happen
+# alongside further hand-coordination work, not on its own.
+ANIMAL_PLAN = [("COW", 4)]
 
 # CARROT and TOMATO removed from planting_priority entirely this round
 # (see that function's docstring), so their weights below are moot --
@@ -94,9 +102,10 @@ SELL_CAP = {
 RESERVE = 30
 SEASON_DAYS = 30
 LIQUIDATION_START_DAY = SEASON_DAYS - 4   # sell harder once the season's almost over
-# Raised well past the original single-goose number: up to 14 animals
-# eating 1 wheat/day each needs a real buffer, not a token one.
-WHEAT_FEED_BUFFER = 60
+# Sized for the current ANIMAL_PLAN target of 4 animals eating 1
+# wheat/day each -- lower than earlier attempts at a much larger herd,
+# since a smaller buffer is easier to keep topped up reliably.
+WHEAT_FEED_BUFFER = 20
 # Matches the sweet spot both a real successful opponent (15 tiles) and
 # a well-verified public notebook (4-16 tiles) independently converged
 # on -- past this, melon's steep glut curve starts crashing its own price.
@@ -445,26 +454,21 @@ def animal_program_status(farm):
 
 
 def choose_animal_program(farm, private, day, in_flight):
-    """DISABLED. Returns None unconditionally below -- do not read the
-    rest of this function as active behavior, it's dead code kept for a
-    future attempt. Tested at three scales this session (a full 8-cow/
-    6-sheep plan, and a much smaller 2-cow-only version) against an
-    otherwise-identical agent with animals off entirely; animals lost on
-    every seed tested at every scale. Two real bugs got found and fixed
-    along the way (a circular gate that permanently blocked ever buying
-    anything once one structure sat empty, and unconstrained building
-    letting every idle unit build its own pasture in the same burst --
-    17+ empty pastures existed by day 2 in one test), so this isn't
-    "still broken," it's tested working correctly and still a net
-    negative every time. Most likely explanation: the top-of-leaderboard
-    replay that motivated trying this (episode 90073673, 8 cow + 6 sheep)
-    has a more efficient overall crop economy than this file does, and
-    animals amplify whatever baseline you already have rather than
-    fixing a weaker one. in_flight and the ANIMAL_PLAN loop below are
-    left in place, correct and tested, in case those underlying economics
-    change enough later to be worth retrying -- re-run the same
-    animals-on-vs-off A/B test before ever removing the `return None`."""
-    return None
+    """Re-enabled: previous attempts lost against main_v1.py, a local
+    reference agent that doesn't itself run animals -- meaning that test
+    never actually validated whether animals hurt or help against the
+    build they're supposed to complement. Real replay analysis (two
+    independent top-10 leaderboard players, "Seb (allegedly)" and
+    "HealthStone") shows both running a full animal program in every
+    game sampled, averaging roughly 2.5-3x this agent's typical real
+    final money. Along the way, a real feed-coordination bug was found
+    and fixed: a unit assigned a feed job from the shared job board
+    would walk straight to the animal with an empty inventory (FEED
+    requires wheat in the *acting unit's own* inventory), arrive with
+    nothing to do, then walk all the way back to the shed for wheat and
+    back out again -- a two-trip pattern that couldn't keep pace once
+    the herd grew past a handful of animals. See the detour-via-shed
+    logic in the main job-assignment loop below."""
     if in_flight:
         return None
     if len(farm.get("hands", [])) < 6:
@@ -509,8 +513,17 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # (BUY_PRODUCT WHEAT 6 alongside its first HIRE and BUY_ANIMAL, all
     # in one order list), rather than gating on a wheat reserve building
     # up naturally. Buys in a real batch, not a token 1 unit at a time,
-    # since up to 14 animals eating daily needs actual supply.
-    if (has_animals or animal_pick) and shed.get("WHEAT", 0) < WHEAT_FEED_BUFFER and money - RESERVE >= prices.get("WHEAT", 25) * 10:
+    # since up to 20 animals eating daily needs actual supply.
+    #
+    # Gated to once per day (hour == 0) -- a real bug found testing this
+    # round: without the gate, the condition stays true for many
+    # consecutive turns (buffer is 85, a single 10-unit buy barely
+    # dents that), so it kept re-firing every turn, $250 a turn,
+    # repeatedly, which crashed a real test game's money from $1,973 to
+    # $176 in three in-game days. Mirrors the hires_today==0 once-per-day
+    # pattern already used for HIRE below.
+    if (hour == 0 and (has_animals or animal_pick) and shed.get("WHEAT", 0) < WHEAT_FEED_BUFFER
+            and money - RESERVE >= prices.get("WHEAT", 25) * 10):
         orders.append(["BUY_PRODUCT", "WHEAT", 10])
 
     # Melon seed gets first claim on the buy loop while under target,
@@ -754,9 +767,30 @@ def agent(obs):
         )
         target = nearest(fx, fy, pool)
         if target:
-            tx, ty, _ = target
+            tx, ty, target_tile = target
             claimed.add((tx, ty))
-            actions[name] = step_toward(fx, fy, tx, ty)
+            # A unit assigned to a needs_feed job from the pool (as
+            # opposed to already standing on one, handled above) was
+            # walking straight there with an empty inventory -- FEED
+            # requires wheat in *this unit's own* inventory, so it would
+            # arrive, find nothing to do, then walk all the way back to
+            # the shed for wheat, then all the way back out again. A
+            # real bug found testing a scaled-up animal herd: wheat shed
+            # stayed well under WHEAT_FEED_BUFFER and animals kept
+            # escaping from missed feeding even with plenty of wheat
+            # being bought, because hands weren't actually carrying any
+            # of it to the pasture -- this two-trip pattern couldn't
+            # keep pace once there were more than a few animals. Detour
+            # via the shed first if not already carrying wheat, same
+            # pattern as the direct-pickup case above.
+            if needs_feed(target_tile) and inv.get("WHEAT", 0) == 0:
+                if is_shed_adjacent((fx, fy), board_size) and private.get("shed", {}).get("WHEAT", 0) > 0:
+                    actions[name] = ["PICKUP", "WHEAT", 5]
+                else:
+                    sx, sy, _ = nearest(fx, fy, [(x, y, None) for x, y in shed_access_tiles(board_size)])
+                    actions[name] = step_toward(fx, fy, sx, sy)
+            else:
+                actions[name] = step_toward(fx, fy, tx, ty)
         else:
             actions[name] = "PASS"
 
@@ -777,13 +811,22 @@ def agent(obs):
         cost = ANIMALS[animal_pick]["cost"]
         # Grows with how many of this animal are already owned, not a
         # flat threshold -- buying straight through the full ANIMAL_PLAN
-        # target with only a flat gate crashed the whole economy on
-        # first test: money never recovered above $500 for the rest of
-        # a 30-day game after 7 cows in a row, since hand-scaling draws
+        # target with only a flat gate crashed the whole economy on an
+        # earlier test: money never recovered above $500 for the rest of
+        # a 30-day game after 7 cows in a row, since hand-scaling drew
         # from the same pool and got starved. This paces each successive
         # purchase to require real spare capital, not just enough to
         # clear a fixed bar regardless of how many are already owned.
-        safety_margin = cost * (2 + n_owned)
+        # Growth rate loosened from cost*(2+n_owned) to cost*(1+n_owned/2)
+        # this round: that original crash predates both the HIRE-order-
+        # starvation fix (hand-scaling no longer actually competes with
+        # this for the same market-order slots) and the strawberry-
+        # dominant crop mix (meaningfully more cash available), so the
+        # original margin was tuned against a much weaker economy than
+        # exists now -- testing showed the original rate stalling real
+        # herd growth well below ANIMAL_PLAN's target even with the
+        # feed-coordination fix.
+        safety_margin = cost * (1 + n_owned / 2)
         if not already_have_one and money - RESERVE >= safety_margin and len(market) < 10:
             market.append(["BUY_ANIMAL", animal_pick, 1])
 

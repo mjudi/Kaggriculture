@@ -98,33 +98,55 @@ Key tunables and their current values, with the reasoning:
   real games vs `main_v1`, **100% win rate (40/0)**, avg margin +$7,642,
   hand count steady around 10 all game instead of declining to 5-7
   late-game.
-- **Animal program: DISABLED, re-tested this session with much stronger
-  evidence, still net negative.** `choose_animal_program()` returns
-  `None` unconditionally — the logic below it is dead code kept for a
-  future attempt. This round's retry was motivated by real replay
-  evidence far stronger than what motivated the original attempt (see
-  below), and along the way found and fixed a real bug: `BUY_PRODUCT
-  WHEAT 10` had no once-per-day gate, so it fired on *every turn* the
-  shed was under `WHEAT_FEED_BUFFER` (which stays true for many turns,
-  since one 10-unit buy barely dents an 85-unit buffer) — $250/turn,
-  repeatedly, crashed one real test game from $1,973 to $176 in three
-  in-game days. Fixed by gating it to `hour == 0`, same as HIRE. Even
-  after that fix: **animals alone lost 0/40 vs `main_v1` (avg -$17,570)**,
-  and **combined with the HIRE fix + crop-mix change, still only 2/38
-  (avg -$10,032)** despite hands reliably hitting the target 10/day in
-  the combined run — so this isn't a hand-coverage problem being masked,
-  animals are a genuine net drag on this economy specifically. Also
-  observed: some cow attrition from missed feeding under hand pressure
-  (`consecutive_unfed` reaching 2, animal escapes) even with a generous
-  wheat buffer — a secondary issue not fully run to ground, since the
-  headline result (animals are net negative here) didn't depend on it.
-  `ANIMAL_PLAN` was updated to `[("COW", 8), ("SHEEP", 12)]` (up from
-  sheep:6) to match this session's real replay data before testing, in
-  case a future attempt wants that starting point. See "Real ladder
-  replay analysis" below for why this doesn't contradict the strong
-  real-world evidence that motivated retrying it — the likely
-  explanation is that animals amplify a strong *whole* system rather
-  than being independently profitable bolted onto this one.
+- **Animal program: RE-ENABLED at a small, deliberately conservative
+  scale (`ANIMAL_PLAN = [("COW", 4)]`, no sheep, no goose) — this took
+  two full rounds of testing this session to get right, in this order:**
+  1. First retry, matching real replay scale directly (`[("COW", 8),
+     ("SHEEP", 12)]`, informed by two independent top-10 leaderboard
+     players' replays — see "Real ladder replay analysis" below): lost
+     0/40 vs the same agent with animals off (avg -$26,986), even after
+     fixing a real feed-coordination bug (see below) and loosening the
+     purchase-pacing gate. Herd visibly oscillated (e.g. 8→3→5→8 cows
+     over ten in-game days) instead of holding steady the way the real
+     replays showed.
+  2. Second retry, small scale (`[("COW", 4)]` only): **holds steady at
+     4/4 from ~day 14 onward with no oscillation**, and wins decisively
+     against the same agent with animals off — 90.0% (36/4, avg
+     +$13,374) and 80.0% (32/8, avg +$10,608) on two independent 40-seed
+     batches, **100% (40/0, avg +$34,072) vs `main_v1`** — the strongest
+     verified result of the whole project. Confirms the underlying
+     mechanism is genuinely good; the earlier "animals lose every time"
+     conclusion (both this session's first retry and last session's)
+     was a *scale* problem, not a fundamentally bad idea — this
+     codebase's hand-coordination can reliably sustain a small herd but
+     not a large one (yet).
+  - **A real, previously undiagnosed feed-coordination bug, found and
+    fixed along the way**: a unit assigned a `needs_feed` job from the
+    shared job board would walk straight toward the animal with an
+    empty inventory — FEED requires wheat in the *acting unit's own*
+    inventory, and nothing routed the unit via the shed first — arrive,
+    find nothing to do, then walk all the way back to the shed for
+    wheat and back out again. This two-trip pattern couldn't keep pace
+    once a herd grew past a handful of animals. Fixed in the main
+    job-assignment loop: when the claimed target is a `needs_feed` tile
+    and the unit isn't carrying wheat, detour via the shed first. Kept
+    regardless of animal scale — it's a correct fix on its own.
+  - Also fixed along the way (same as before): `BUY_PRODUCT WHEAT 10`
+    needs a `hour == 0` once-per-day gate, or it re-fires every turn
+    the shed is under `WHEAT_FEED_BUFFER` ($250/turn, repeatedly).
+  - The animal-purchase pacing gate (`safety_margin`) was loosened from
+    `cost * (2 + n_owned)` to `cost * (1 + n_owned / 2)` — the original,
+    steeper rate was tuned against a much weaker economy (before the
+    HIRE fix and strawberry-dominant crop mix existed) and stalled real
+    herd growth well below target even with the feed-coordination fix.
+  - **Do not casually raise `ANIMAL_PLAN` back toward Seb/HealthStone's
+    real scale (8 cow + 12-14 sheep) without also improving hand
+    coordination further** — that exact scale was tried this session
+    and lost decisively for the reason above (herd instability, not
+    economics). A future attempt at a larger herd needs to address *why*
+    hands can't keep pace at scale (more hands? smarter per-unit
+    feed-routing that batches multiple pasture visits per shed trip?
+    something else?) before the scale itself is worth revisiting.
 - **Two real engine bugs found and fixed, worth knowing about for any
   future harvest-priority logic**:
   - Ongoing crops (tomato, strawberry) start decaying about a day after
@@ -196,22 +218,21 @@ their fix and verified results:
    10-order market cap) was found by noticing this agent's own hand count
    *declining* late-game despite the scaling formula only going up.
 
-Testing each of the three fixes in isolation (methodology below) showed
-#2 and #3 were strong, real, verified wins, while #1 (animals) was **not**
-— it lost badly alone and even combined with the other two fixes. This
-doesn't mean the replay observation was wrong; it means Seb's animal
-program most likely works *because of* something else in his build this
-agent still doesn't replicate (very high land/tile utilization — ~43
-strawberry + ~12 melon + ~18-19 pasture tiles is close to the full
-100-tile, 4-quadrant footprint — or some other systemic difference), not
-because animals are independently profitable bolted onto an otherwise
-similar economy. Real replay evidence is strong for *what a winning
-opponent does*, but not proof that any single piece of their build is
-independently causal — this is the same lesson as the CROP_WEIGHT
-regression earlier in the project, from the opposite direction: there, a
-single replay wrongly generalized into a bad change; here, ten replays
-correctly pointed at two real wins and one real dead end, but only
-because each was actually isolated and tested rather than assumed.
+Testing each of the three fixes in isolation (methodology below) initially
+showed #2 and #3 were strong, real, verified wins, while #1 (animals) was
+**not** — it lost badly alone and even combined with the other two fixes,
+at the scale Seb's replays showed (8 cow + 12 sheep). **This was revisited
+and corrected later the same day** (see "Follow-up: real submission
+replay analysis + the animal scale fix" below) — animals at that full
+scale genuinely do lose here, but a much smaller scale (4 cows only) wins
+decisively once a real feed-coordination bug is fixed. The replay
+observation wasn't wrong; the first attempt to act on it was tuned to the
+wrong scale for what this agent's hand-coordination could actually
+sustain. This is the same lesson as the CROP_WEIGHT regression earlier in
+the project, from a related angle: real replay evidence is strong for
+*what a winning opponent does*, but the *scale* they run something at
+isn't automatically the right scale to copy — it depends on what your own
+agent's execution can actually support.
 
 **A costly methodology lesson from this session, worth avoiding next
 time:** when testing multiple variants of `main.py` by copying files
@@ -225,6 +246,45 @@ permanent, never-overwritten filename (e.g. `main_fix1_only.py`) and
 never touch a file while any test might still be reading it. A copy
 immediately after finishing an edit, before running anything else, is the
 safest habit.
+
+### Follow-up, same day: real submission replay analysis + the animal scale fix
+
+After committing/pushing/submitting the HIRE-fix + crop-mix change above
+(submission `55362811`), the user separately uploaded a second real-replay
+zip: 16 more games, this time capturing **two** independent top-10 players
+head-to-head — "Seb (allegedly)" (8/16 in this sample) and "HealthStone"
+(7/12) — plus 30 freshly-downloaded real replays of the just-submitted
+`55362811` itself (via `kaggle competitions episodes <id> -v` to list, then
+`kaggle competitions replay <episode_id>` per game).
+
+**Real result on `55362811`: 11/30 = 36.7% win rate** — worse than the
+53.3% seen on the *previous* submission, despite testing at 100% locally.
+This agent's own final money is consistently ~$25-30k regardless of
+outcome; losses come against opponents averaging ~$51k. Both Seb and
+HealthStone average $76-78k in this batch, via a sustained full animal
+program (Seb: 8 cow + 14 sheep, 4 quadrants; HealthStone: 9 cow + 5-6
+sheep, only **3** quadrants — ruling out "more land" as the explanation)
+plus land/tile utilization noticeably higher than this agent's own.
+
+This is what triggered the animal-scale investigation described in the
+bullet above. The short version: full real-observed scale (8 cow + 12
+sheep) was retried directly and still lost 0/40 even after two real bug
+fixes (see the animal-program bullet above for the feed-coordination bug
+and the loosened purchase-pacing gate) — the herd couldn't hold steady at
+that size. A much smaller scale (4 cows, no sheep) does hold steady and
+wins decisively (90%/80% across two 40-seed batches vs. animals-off,
+100% vs `main_v1`). **This is now in `main.py`, committed, but not yet
+submitted to Kaggle as of this writing** — see Open threads below.
+
+**Building a synthetic strong-opponent test file was itself a real
+investigation, not a shortcut** — `main_v1.py` only runs a token 1-of-each
+animal setup and was never a valid stand-in for testing "does an
+animal-heavy build lose because animals are bad, or because this specific
+codebase can't execute them yet." A copy of `main.py` with animals
+force-enabled was used instead, and turned out to be genuinely useful for
+isolating the feed-coordination bug — worth keeping this pattern in mind
+for future strategy questions where `main_v1.py` doesn't represent the
+behavior actually being tested against.
 
 ## Testing workflow
 
@@ -250,43 +310,43 @@ operating principle here, not a one-off caution.
 
 ## Open threads / natural next steps
 
-1. **Submitted 2026-08-07** — the CROP_WEIGHT-retry `main.py` (hand-scaling
-   fix + conservative CROP_WEIGHT diversification, see above) went in as
-   submission ID `55335956`. **Superseded by this session's changes below
-   before real ladder data came back on it** — the 16/30 real result
-   analyzed this session was on that submission, and directly motivated
-   the HIRE-fix and crop-mix changes now in `main.py`. Not yet
-   resubmitted as of this writing (see below).
-2. **Submitted 2026-08-08** as submission ID `55362811` — `main.py` with
-   the HIRE-order-starvation fix and the carrot/tomato-dropped,
-   strawberry-dominant crop mix, verified locally at 100% (80/0) across
-   two independent 40-seed batches vs `main_v1`, avg margins +$10,448 and
-   +$11,925. This is the strongest fully-verified local result of the
-   project so far and is now one of the 2 latest-tracked submissions
-   alongside `55335956`. **No real ladder data on it yet.**
-3. Once real games accumulate on `55362811`, get a fresh, large (20+
-   game) batch of real ladder
-   replays on the new submission and re-run the same win/loss +
-   day-by-day trajectory analysis used this session (money, hand count,
-   crop mix, animal presence, sampled at `day*24 + 12` per game) to
-   confirm the local gains hold up against the real field — this
-   methodology (comparing your own replays against a specific strong
-   opponent's replays, not just aggregate win rate) is what surfaced
-   the two real fixes this session and is worth repeating as a matter of
-   course, not just when stuck.
-4. The animal program remains a real, correctly-built, currently-dead
-   feature. This session's retry was informed by much stronger evidence
-   than the original attempt (10 real replays of one consistently
-   successful player, vs a single replay before) and still lost, even
-   after fixing a real bug found along the way (see above) — so this
-   isn't an open question about whether the mechanism works, it's now
-   fairly well established that animals don't help *this specific
-   economy* even when it's the stronger, crop-mix-fixed version. Only
-   worth another look if some other, more fundamental gap against Seb's
-   build gets closed first (land/tile utilization is the leading
-   candidate — his ~75+ tiles in active use is close to the full
-   100-tile footprint, well above what this agent currently achieves).
-5. Melon's `MELON_TARGET = 15` was left unchanged this round — Seb's
-   real melon peak (13-18 tiles) already falls inside that range, so no
-   evidence surfaced this session to revise it. Worth another look if a
-   future replay batch shows otherwise.
+1. **Submission history**: `55335956` (2026-08-07, hand-scaling +
+   CROP_WEIGHT retry) → `55362811` (2026-08-08, HIRE fix + strawberry-
+   dominant crop mix, **real result 11/30 = 36.7%**, worse than
+   `55335956`'s own real 53.3% despite testing at 100% locally — this is
+   what triggered the animal-scale investigation) → **not yet submitted**:
+   `main.py` now additionally has the feed-coordination fix and animals
+   re-enabled at a small scale (4 cows), verified locally at 90%/80%
+   (two 40-seed batches vs. the same agent with animals off) and 100%
+   (40/0, avg +$34,072) vs `main_v1` — the strongest local result of the
+   project. **Ready for the next submission slot**, pending explicit
+   go-ahead.
+2. Once submitted and real games accumulate, repeat the same replay
+   analysis methodology used twice now (download own real replays via
+   `kaggle competitions episodes <id> -v` then `kaggle competitions
+   replay <episode_id>` per game; sample day-by-day at `day*24 + 12`;
+   compare against a specific strong opponent's replays, not just
+   aggregate win rate) — this has surfaced every real fix found so far
+   and is clearly worth repeating as a matter of course each time a new
+   submission accumulates enough games, not just when stuck.
+3. **The animal program's ceiling is now understood, not just "on or
+   off"**: this codebase can reliably sustain ~4 animals but not the
+   ~20 (8 cow + 12-14 sheep) real top players run, because hand
+   coordination can't keep a large herd fed reliably yet (see the
+   feed-coordination bug fix above — real, but evidently not sufficient
+   on its own at full scale). The natural next lever, if pursuing this
+   further, is *why* — more hands specifically dedicated to animal care
+   past a certain herd size, a smarter routing rule that batches
+   multiple pasture visits per shed trip, or something else entirely.
+   Test any such change against the same animals-on-vs-off isolation
+   used this session, watching specifically for whether the herd count
+   holds steady over time rather than oscillating.
+4. **Land/tile utilization gap, not yet investigated**: both Seb and
+   HealthStone run meaningfully higher total occupied tiles (crops +
+   animal structures combined) than this agent — HealthStone in
+   particular reaches ~65-73 occupied tiles on only 3 quadrants (75
+   tiles), a higher utilization rate than this agent achieves even on 4.
+   Not touched this session; worth its own isolated investigation.
+5. Melon's `MELON_TARGET = 15` remains unchanged — both Seb's (13-18)
+   and HealthStone's real melon peaks fall inside that range, so no
+   evidence has surfaced across two replay batches now to revise it.
