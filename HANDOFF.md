@@ -415,15 +415,17 @@ operating principle here, not a one-off caution.
    CROP_WEIGHT retry) → `55362811` (2026-08-08, HIRE fix + strawberry-
    dominant crop mix, **real result 11/30 = 36.7%**, worse than
    `55335956`'s own real 53.3% despite testing at 100% locally — this is
-   what triggered the animal-scale investigation) → `55386610`
-   (2026-08-09), feed-coordination fix + small-scale animals (4 cows),
-   verified locally at 90%/80% vs animals-off and 100% (40/0, avg
-   +$34,072) vs `main_v1` → **not yet submitted**: `main.py` now
-   additionally has season-end planting caution (see above), verified
-   at 87.5% (35/5, avg +$1,864) directly against the `55386610` baseline
-   and 100% (40/0, avg +$36,113) vs `main_v1` — the new strongest local
-   result. **Ready for the next submission slot**, pending explicit
-   go-ahead. Fertilizer and price-momentum were also tried this round
+   what triggered the animal-scale investigation, public score 494.6) →
+   `55386610` (2026-08-09), feed-coordination fix + small-scale animals
+   (4 cows), verified locally at 90%/80% vs animals-off and 100% (40/0,
+   avg +$34,072) vs `main_v1` (**public score 591.4** once it finished —
+   a real, meaningful jump from 494.6, consistent with the local
+   improvement actually holding on the real field) → **`55390463`
+   (2026-08-09)**, season-end planting caution added, verified at 87.5%
+   (35/5, avg +$1,864) directly against the `55386610` baseline and 100%
+   (40/0, avg +$36,113) vs `main_v1` — the new strongest local result.
+   Status `PENDING` at submit time. **No real ladder data on it yet.**
+   Fertilizer and price-momentum were also tried this round
    and reverted (see "Optimization round" section) — not included.
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used twice now (download own real replays via
