@@ -66,18 +66,15 @@ ANIMALS = {
 # whether that was a scale problem rather than the mechanism being bad.
 ANIMAL_PLAN = [("COW", 8), ("SHEEP", 6)]
 
-# Ongoing crops (tomato, strawberry) never need replanting once
-# established, which matters more the larger the operation gets --
-# weighted somewhat above their seed cost would suggest for that reason.
-# A much stronger version of this (6:1 strawberry) was tried earlier and
-# caused an 80%->25% win-rate regression, but that test also loosened
-# strawberry's planting_priority gate at the same time, so the weight
-# ratio itself was never isolated -- reverting the gate alone recovered
-# most of the loss (see planting_priority docstring), suggesting the
-# weight ratio wasn't necessarily the main culprit. This round uses a
-# deliberately gentler ratio with the gate left untouched, specifically
-# to isolate whether a modest ongoing-crop bias helps on its own.
-CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 1.5, "STRAWBERRY": 2, "MELON": 1}
+# CARROT and TOMATO removed from planting_priority entirely this round
+# (see that function's docstring), so their weights below are moot --
+# left at 1 rather than deleted in case either crop's eligibility gets
+# revisited later. STRAWBERRY raised well past the previous conservative
+# 2:1 retry now that it's meant to be the dominant crop, not just one of
+# several diversified options -- matches a real top-10 player's replays,
+# where strawberry tile count dwarfs melon (the only other crop grown)
+# by roughly 3:1 at peak.
+CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 1, "STRAWBERRY": 3, "MELON": 1}
 
 # Per-turn sell ceiling per item, so one big harvest doesn't land in a
 # single order and walk the price down against ourselves. Tighter caps on
@@ -255,18 +252,20 @@ def step_toward(fx, fy, tx, ty):
 
 
 def planting_priority(day, money):
-    """Which crops are eligible to plant, gated by day/money. Reverted
-    to the original, more conservative timing this round -- these were
-    loosened alongside the strawberry-weighting change tried this round,
-    and the verified-good result (92.5% win rate) came from reverting
-    both together, not just the final-pick weighting."""
-    order = ["WHEAT", "CARROT"]
-    if day >= 3:
-        order.append("TOMATO")
+    """Which crops are eligible to plant, gated by day/money. CARROT and
+    TOMATO dropped entirely -- a real top-10 leaderboard player's replays
+    (10 games analyzed, same pattern in all 10) showed zero carrot and
+    zero tomato ever planted, strawberry run as the dominant crop (peaks
+    ~41-43 tiles around day 14-18), melon as an early secondary crop, and
+    just enough wheat to feed animals. WHEAT kept eligible throughout
+    (bootstrap cash early, animal feed later once animals are back on).
+    Melon moved earlier (day >= 2) to match that replay's melon tiles
+    already at 3 by day 2, well before strawberry becomes eligible."""
+    order = ["WHEAT"]
+    if day >= 2 and money > 300:
+        order.append("MELON")
     if day >= 6 and money > 800:
         order.append("STRAWBERRY")
-    if day >= 8 and money > 800:
-        order.append("MELON")
     return order
 
 
@@ -596,7 +595,23 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
         if day >= 4 and utilization > 0.7 and money - RESERVE >= next_cost:
             orders.append(["BUY_LAND"])
 
-    return orders[:10]  # maxMarketOrdersPerTurn default; extras would be dropped anyway
+    # HIRE sorted to the front before the maxMarketOrdersPerTurn cap below,
+    # not appended in the order built above -- confirmed directly against
+    # the real engine source (_process_market truncates the *entire*
+    # per-player order list to maxMarketOrdersPerTurn=10, HIRE included,
+    # before processing anything) and against a real replay: day 22 hour 1
+    # issued 5 SELL + 1 BUY_SEED before reaching any HIRE, leaving room for
+    # only 4 of the 12 intended HIRE orders that turn, and the observed
+    # hand count that day was exactly 4. This starved hiring hardest late
+    # game, exactly when harvest volume (and SELL orders) is largest and
+    # more hands would help most -- the likely real explanation for hand
+    # count declining late-game despite target_hands only going up. HIRE is
+    # cheap (~$376 total for 12 hands, fibonacci-scaled) and processed
+    # atomically (once per queue slot, not per-unit lockstep like SELL/BUY),
+    # so reordering it first is safe and doesn't interact with the
+    # concurrent-lockstep logic those other order types depend on.
+    orders.sort(key=lambda o: 0 if o[0] == "HIRE" else 1)
+    return orders[:10]  # maxMarketOrdersPerTurn default; extras would be dropped otherwise
 
 
 # -------------------------------------------------------------- agent -----
