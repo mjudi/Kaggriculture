@@ -314,13 +314,12 @@ operating principle here, not a one-off caution.
    CROP_WEIGHT retry) → `55362811` (2026-08-08, HIRE fix + strawberry-
    dominant crop mix, **real result 11/30 = 36.7%**, worse than
    `55335956`'s own real 53.3% despite testing at 100% locally — this is
-   what triggered the animal-scale investigation) → **not yet submitted**:
-   `main.py` now additionally has the feed-coordination fix and animals
-   re-enabled at a small scale (4 cows), verified locally at 90%/80%
-   (two 40-seed batches vs. the same agent with animals off) and 100%
-   (40/0, avg +$34,072) vs `main_v1` — the strongest local result of the
-   project. **Ready for the next submission slot**, pending explicit
-   go-ahead.
+   what triggered the animal-scale investigation) → **`55386610`
+   (2026-08-09)**, feed-coordination fix + small-scale animals (4 cows),
+   verified locally at 90%/80% (two 40-seed batches vs. the same agent
+   with animals off) and 100% (40/0, avg +$34,072) vs `main_v1` — the
+   strongest local result of the project. Status `PENDING` at submit
+   time. **No real ladder data on it yet.**
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used twice now (download own real replays via
    `kaggle competitions episodes <id> -v` then `kaggle competitions
