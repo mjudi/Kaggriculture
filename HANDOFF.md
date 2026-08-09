@@ -257,15 +257,15 @@ operating principle here, not a one-off caution.
    analyzed this session was on that submission, and directly motivated
    the HIRE-fix and crop-mix changes now in `main.py`. Not yet
    resubmitted as of this writing (see below).
-2. **Not yet submitted to Kaggle**: `main.py` now has the HIRE-order-
-   starvation fix and the carrot/tomato-dropped, strawberry-dominant crop
-   mix, verified locally at 100% (80/0) across two independent 40-seed
-   batches vs `main_v1`, avg margins +$10,448 and +$11,925. This is the
-   strongest fully-verified local result of the project so far and is
-   ready for the next submission slot, pending the user's explicit
-   go-ahead per the established submission workflow (join/rules-accepted
-   check, self-play sanity, then `kaggle competitions submit`).
-3. Once submitted, get a fresh, large (20+ game) batch of real ladder
+2. **Submitted 2026-08-08** as submission ID `55362811` — `main.py` with
+   the HIRE-order-starvation fix and the carrot/tomato-dropped,
+   strawberry-dominant crop mix, verified locally at 100% (80/0) across
+   two independent 40-seed batches vs `main_v1`, avg margins +$10,448 and
+   +$11,925. This is the strongest fully-verified local result of the
+   project so far and is now one of the 2 latest-tracked submissions
+   alongside `55335956`. **No real ladder data on it yet.**
+3. Once real games accumulate on `55362811`, get a fresh, large (20+
+   game) batch of real ladder
    replays on the new submission and re-run the same win/loss +
    day-by-day trajectory analysis used this session (money, hand count,
    crop mix, animal presence, sampled at `day*24 + 12` per game) to
