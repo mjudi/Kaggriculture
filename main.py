@@ -269,11 +269,18 @@ def planting_priority(day, money):
     just enough wheat to feed animals. WHEAT kept eligible throughout
     (bootstrap cash early, animal feed later once animals are back on).
     Melon moved earlier (day >= 2) to match that replay's melon tiles
-    already at 3 by day 2, well before strawberry becomes eligible."""
-    order = ["WHEAT"]
-    if day >= 2 and money > 300:
+    already at 3 by day 2, well before strawberry becomes eligible.
+
+    Season-end maturity check: a crop planted so late it can't reach its
+    own first_yield_day before turn 720 is pure waste -- seed cost and a
+    planting action for zero possible return. Checked against
+    first_yield_day (the earliest a planting can produce anything at
+    all), not max_yield_day, since a late planting that still gets one
+    harvest in isn't wasted even if it never reaches full yield."""
+    order = [c for c in ["WHEAT"] if day + CROPS[c]["first_yield_day"] <= SEASON_DAYS]
+    if day >= 2 and money > 300 and day + CROPS["MELON"]["first_yield_day"] <= SEASON_DAYS:
         order.append("MELON")
-    if day >= 6 and money > 800:
+    if day >= 6 and money > 800 and day + CROPS["STRAWBERRY"]["first_yield_day"] <= SEASON_DAYS:
         order.append("STRAWBERRY")
     return order
 

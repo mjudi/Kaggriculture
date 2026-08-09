@@ -162,6 +162,107 @@ Key tunables and their current values, with the reasoning:
   - Both are wired in at the top of the priority chain, above general
     watering, since a decaying tile is actively losing value, not just
     sitting idle.
+- **Season-end planting caution** (`planting_priority()`, main.py:263):
+  a crop no longer becomes eligible to plant once `day +
+  CROPS[crop]["first_yield_day"] > SEASON_DAYS` — planting something
+  that can't reach even its first possible harvest before turn 720 is
+  pure waste (seed cost + a planting action for zero return). Checked
+  against `first_yield_day`, not `max_yield_day`, since a late planting
+  that still gets one harvest in isn't wasted even if it never reaches
+  full yield. In practice this stops MELON/STRAWBERRY plantings after
+  day 20 (`30 - 10`); WHEAT is barely affected (cutoff day 28). Verified
+  in isolation directly against the committed baseline (not just vs
+  `main_v1` — see the note in the section below about why that
+  distinction matters): 87.5% (35/5), avg **+$1,864** across a 40-seed
+  batch. Modest but real and consistent with real replay data — both
+  Seb and HealthStone wind down active strawberry/melon plantings
+  starting around day 18-22.
+- **Fertilizer: re-tested this round, still disabled.** Same conclusion
+  as before, now double-checked against the current (much stronger)
+  economy rather than assumed to still hold. See "Optimization round"
+  section below for the isolated result.
+- **Price momentum / dynamic sell throttling: tried, reverted, not in
+  `main.py`.** See "Optimization round" section below.
+
+## Optimization round: assessing external "Grandmaster" suggestions
+
+The user relayed a list of Kaggle-Grandmaster-style suggestions (dynamic
+non-deterministic agent, reward-function tuning, opponent-footprint
+tracking, queue-aware routing, risk depreciation, etc.) and asked for an
+assessment plus a plan. Most of the list doesn't fit this competition or
+this agent's actual architecture — worth recording explicitly so a future
+session doesn't re-litigate the same rejected ideas without new evidence:
+
+- **Non-determinism** was rejected outright — it conflicts with this
+  project's entire testing methodology, which depends on identical seeds
+  producing directly comparable A/B results across every round documented
+  in this file. Kaggle's own evaluation is also deterministic-episode
+  based (`configuration={"seed": N}` reproduces exact games).
+- **"Reward function," "state-space design"** are RL/training vocabulary
+  that don't map onto what `main.py` is — a fixed rule-priority heuristic
+  submitted directly to Kaggle's matchmaking, not a trained policy. There
+  is no reward signal or training loop to tune. Reframed as "make good
+  local decisions, verify them empirically the same way as everything
+  else in this file," not adopted literally.
+- **"Opponent footprint... predict clone dumps," "preempt clones when
+  public matching states occur"** assume visibility into the opponent's
+  shed/strategy that doesn't exist — confirmed directly in README.md:
+  "Players are unable to see the state of the other's shed." Not
+  implementable as stated; not attempted.
+- **"Queue-aware seasonal routing," "delivery time delays"** don't map to
+  any real Kaggriculture mechanic (checked against README.md's full
+  action list) — travel time is already implicit in the existing
+  job-board's nearest-target routing (`agent()`'s main loop, `nearest()`
+  helper). Not a new feature to build; already effectively present.
+
+Three pieces of the list WERE genuinely new, testable, and grounded in
+real mechanics, and got a real isolated test each:
+
+1. **Price momentum ("trend velocity")** — added `_PRICE_HISTORY`, a
+   deliberate module-level exception to this file's normal stateless
+   convention (documented at the top of `main.py`), plus
+   `record_price_history()` and `price_momentum()`. **Verified
+   empirically this round that module-level state DOES persist
+   call-to-call within one episode** under local `kaggle_environments`
+   (a counter incremented correctly turn-to-turn across a full 720-step
+   run) — this wasn't previously confirmed and is worth knowing for any
+   future stateful feature. Real Kaggle's actual submission runtime
+   isn't confirmed to behave identically, so `price_momentum()` always
+   has a safe neutral fallback (returns 0.0, i.e. no adjustment,
+   whenever there's insufficient history) rather than assuming data
+   exists. Used to scale `SELL_CAP` up/down by a multiplier based on
+   recent price trend. **Result: regressed at both multiplier strengths
+   tested** — `1 + 0.5*momentum`: 27.5% (11/29), avg -$436; retuned
+   gentler to `1 + 0.15*momentum`: still 32.5% (13/27), avg -$315, both
+   vs the committed baseline. Not a tuning-magnitude problem (gentler
+   barely moved the needle) — more likely this signal fights against
+   `SELL_CAP`'s already-empirically-tuned per-item values rather than
+   complementing them. **Reverted, not in `main.py`.**
+2. **Fertilizer re-test** — `build_market_orders`'s fertilizer purchase
+   was hard-disabled via `if False and ...` based on a test from before
+   the HIRE-order-starvation fix, the strawberry-dominant crop mix, and
+   the small-scale animal program all existed — i.e. against a
+   meaningfully weaker economy. Re-enabled unmodified (same
+   FERTILIZE/PICKUP logic, same $500/$30-cap gate) and re-tested
+   directly against the current baseline. **Result: still a clear net
+   negative, 0/40, avg -$21,760.** The old conclusion holds even at the
+   stronger economy — this isn't a "the world changed, re-check"
+   situation the way animals turned out to be; fertilizer's travel-time
+   and per-fertilize-action cost genuinely doesn't recoup here. **Left
+   disabled, `if False and` restored.**
+3. **Season-end planting caution** — see the bullet in "Current agent
+   design" above. **Kept, verified, in `main.py`.**
+
+**A methodology note worth repeating for any future isolated test**:
+early results in this round were compared against `main_v1.py` and
+looked uniformly excellent (100% win rate for fertilizer, season-end,
+AND momentum all individually) — but that's misleading when the
+*current baseline itself* already beats `main_v1.py` by a wide, growing
+margin. The only test that actually isolates a single change's own
+contribution is **against the current committed baseline**, not against
+`main_v1.py`. Fertilizer's real result (a severe loss) only showed up
+once compared the right way — comparing only against `main_v1.py` would
+have led to shipping a net-negative change.
 
 ## Real ladder data (as of this session)
 
@@ -314,12 +415,16 @@ operating principle here, not a one-off caution.
    CROP_WEIGHT retry) → `55362811` (2026-08-08, HIRE fix + strawberry-
    dominant crop mix, **real result 11/30 = 36.7%**, worse than
    `55335956`'s own real 53.3% despite testing at 100% locally — this is
-   what triggered the animal-scale investigation) → **`55386610`
-   (2026-08-09)**, feed-coordination fix + small-scale animals (4 cows),
-   verified locally at 90%/80% (two 40-seed batches vs. the same agent
-   with animals off) and 100% (40/0, avg +$34,072) vs `main_v1` — the
-   strongest local result of the project. Status `PENDING` at submit
-   time. **No real ladder data on it yet.**
+   what triggered the animal-scale investigation) → `55386610`
+   (2026-08-09), feed-coordination fix + small-scale animals (4 cows),
+   verified locally at 90%/80% vs animals-off and 100% (40/0, avg
+   +$34,072) vs `main_v1` → **not yet submitted**: `main.py` now
+   additionally has season-end planting caution (see above), verified
+   at 87.5% (35/5, avg +$1,864) directly against the `55386610` baseline
+   and 100% (40/0, avg +$36,113) vs `main_v1` — the new strongest local
+   result. **Ready for the next submission slot**, pending explicit
+   go-ahead. Fertilizer and price-momentum were also tried this round
+   and reverted (see "Optimization round" section) — not included.
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used twice now (download own real replays via
    `kaggle competitions episodes <id> -v` then `kaggle competitions
@@ -349,3 +454,21 @@ operating principle here, not a one-off caution.
 5. Melon's `MELON_TARGET = 15` remains unchanged — both Seb's (13-18)
    and HealthStone's real melon peaks fall inside that range, so no
    evidence has surfaced across two replay batches now to revise it.
+6. **Price momentum is a plausible idea that failed at the throttling
+   layer specifically, not necessarily overall** — it regressed when
+   used to adjust `SELL_CAP`, but the underlying signal
+   (`price_momentum()`, still in the codebase's git history even though
+   reverted from `main.py`) might be more useful applied somewhere else
+   entirely, e.g. informing *which* crop to prioritize planting/selling
+   rather than *how much* to throttle an already-well-tuned cap. Not
+   worth re-attempting without a genuinely different application, not
+   just a different multiplier (both tested multipliers this round
+   landed in the same regressed range).
+7. **Module-level state confirmed to persist within an episode** (see
+   "Optimization round" section) — this opens the door to other stateful
+   features beyond price momentum (e.g. tracking the agent's own
+   historical hand-idle-time, or a running count of harvests per crop)
+   if a future idea needs turn-to-turn memory. Real Kaggle's submission
+   runtime specifically is still unconfirmed either way — any future
+   stateful feature should keep the same defensive-fallback discipline
+   used for `price_momentum()`.
