@@ -40,21 +40,52 @@ hiring, land buying.
 
 Key tunables and their current values, with the reasoning:
 
-- **Hand scaling**: `target_hands = min(12, 4 + day)` — ramps to the cap by
-  day 8 regardless of momentary cash (engine still hires fewer if it
-  genuinely can't afford the full request that morning). This replaced an
-  earlier money-gated formula (`min(8-12, N + money // X)`) that created a
-  self-reinforcing trap: low money kept hands low, which kept money low. A
-  24-game batch of real ladder losses showed hand count never breaking 7
-  even by day 27 under the old formula, while every strong real opponent
-  studied (Xmeeeee, lucaskna, Alex) reached 11-13 hands by day 6-12.
-- **Land purchases**: re-enabled, gated on `day >= 4` and tile utilization
-  `> 0.7`. Was disabled entirely earlier in the session (land + a low hand
-  cap = spreading the same small workforce too thin), then re-enabled once
-  hand-scaling was fixed, since land and hands turned out to be strongly
-  **complementary, not independently additive** — tested directly: hands-up
-  with land off, and land-on with hands still capped low, both individually
-  *lost* to the baseline; only scaling both together produced a net gain.
+- **Hand scaling**: `target_hands = min(8, 4 + day)` — cap lowered from 12
+  to 8 this round, a real bug found while fixing seed-buying throughput
+  (see below): HIRE is sorted first before the `maxMarketOrdersPerTurn`
+  truncation (see the HIRE-order-starvation fix below), which fixed HIRE
+  being starved but created the opposite problem once hands neared 12 --
+  12 HIRE orders alone fill the *entire* 10-order turn budget, leaving
+  zero room for anything else (including the once-per-day seed-buy batch)
+  on that turn. Confirmed directly: the seed-buy batch never fired on any
+  real hour-0 turn once hands neared the old cap. 8 still comfortably
+  covers real top-10 replay data (observed hand counts ranged 3-14,
+  frequently well under 12) while leaving headroom for other hour-0
+  purchases.
+- **Land purchases**: capped at **3 quadrants, not 4**. A fresh replay
+  batch covering 13 distinct top-10 players (not just 1-2, as in earlier
+  rounds) showed every single profiled game staying at exactly 3
+  quadrants from around day 8 onward, never buying the 4th. Verified in
+  isolation: 100% (40/0, avg +$3,261) vs the committed baseline. This
+  directly contradicts an earlier finding in this file ("4 quadrants beat
+  3") — that finding predates the HIRE-order-starvation fix, the
+  seed-buying-throughput fix, and the strawberry-dominant crop mix all
+  existing, so it was re-tested with the current stronger baseline rather
+  than assumed to still hold, and the new data pointed the other way.
+- **A real, previously undiagnosed bug: seed-buying couldn't keep pace
+  with idle land late-game.** `build_market_orders`'s seed-buy block only
+  ever purchased 1 seed per turn, gated on stock hitting exactly 0.
+  Confirmed directly in a real local run: by day 24-28, 41-53 tiles sat
+  empty while wheat seed stock was 0-1 the entire time. Root cause: once
+  melon/strawberry age out of `planting_priority` past their maturity
+  cutoff (day 20, from the season-end-caution feature), every newly-idle
+  tile wants a wheat seed at once, but 1/turn can't keep pace. Fresh
+  top-10 replay data shows the fix already reflected in real play: wheat
+  tile count climbs to 48-50 by day 26 as strawberry winds down --
+  they're backfilling freed land, not leaving it idle. Fixed with a
+  once-per-day (`hour == 0`) batch purchase sized to actual demand
+  (empty plantable tile count, capped by affordability and a flat max of
+  10), checked independently of the "stock == 0" trigger (nesting it
+  inside that check was tried first and barely ever fired, since a
+  leftover seed from the previous day is usually still in stock right at
+  hour 0). The original 1-seed purchase stays as an ungated same-day
+  top-up for genuine mid-day stockouts. Verified in isolation, combined
+  with the hand-cap fix above (both needed together -- the batch can't
+  fire at all without the hand-cap fix freeing up an order slot): 97.5%
+  (39/1, avg +$3,321) vs the committed baseline. Note: empty-tile count
+  still isn't fully zero even after this fix (hand-coverage of a
+  larger occupied footprint may be a secondary, not-yet-addressed
+  bottleneck) -- but the net result is still a clear win.
 - **Melon prioritized up to `MELON_TARGET = 15`** ahead of even
   diversification for the rest. Informed by three independent sources
   agreeing: a well-verified public notebook's coins-per-action analysis
@@ -147,6 +178,26 @@ Key tunables and their current values, with the reasoning:
     hands can't keep pace at scale (more hands? smarter per-unit
     feed-routing that batches multiple pasture visits per shed trip?
     something else?) before the scale itself is worth revisiting.
+  - **This finding held up on a third, independent attempt with much
+    stronger evidence.** A fresh replay batch covering 13 distinct
+    top-10 players (not just 2, as in the round that produced the
+    finding above) showed a smaller real target than previously tried:
+    ~8-9 cow + ~4-4.5 sheep, not 12-14 sheep. Tried `ANIMAL_PLAN =
+    [("COW", 8), ("SHEEP", 4)]` specifically to check whether the
+    earlier failure was really about the *larger* scale (20 animals) or
+    about mixing cow and sheep at all. **Still a decisive loss: 0/40,
+    avg -$28,200**, with the same mild oscillation symptom as before
+    (sheep count fluctuating 4→2→2→3 across sampled days on some
+    seeds). This confirms the limitation is not primarily about total
+    headcount — a 12-animal mixed herd (8 cow + 4 sheep) failed nearly
+    as badly as the earlier 20-animal one. The mixed cow+sheep
+    coordination itself (two different pasture types competing for the
+    same limited hand attention and feed routing) is the more likely
+    root cause. `ANIMAL_PLAN` reverted to `[("COW", 4)]` cow-only,
+    unchanged from the previous round's verified-good result. Treat the
+    "no sheep without deeper coordination work" finding as fairly
+    well-established at this point, not still an open question to keep
+    re-testing at slightly different scales.
 - **Two real engine bugs found and fixed, worth knowing about for any
   future harvest-priority logic**:
   - Ongoing crops (tomato, strawberry) start decaying about a day after
@@ -387,6 +438,77 @@ isolating the feed-coordination bug — worth keeping this pattern in mind
 for future strategy questions where `main_v1.py` doesn't represent the
 behavior actually being tested against.
 
+### Third round: 13-player replay batch, seed-buying bug, land cap
+
+The user uploaded a third pair of replay zips: 35 fresh real games of the
+current submission (`55390463` — **16/35 = 45.7% win rate**) and 10 fresh
+top-10 games covering **13 distinct named players** (Abracadabra, THUNDER
+THUNDER, Valmorlee, BHackers, TIM, Freddy, Lev Neganov, Jince, Erfan
+Eshratifar, Dmitry Larko, Victor @ Tufa Labs, Ak, Hak, Ueddy) — a much
+broader sample than either prior round (which covered 1 and 2 players
+respectively).
+
+Their crop/pasture counts were remarkably consistent across many
+different players (e.g. day 22: 30-33 wheat / 23-28 strawberry / 12-14
+pasture, repeated across 6+ different player pairs) — strong evidence
+most of the current top tier is running a shared public-notebook-derived
+strategy, not independently convergent builds. Same recurring pattern as
+every prior round: this agent's own score is stable (~$38-50k) regardless
+of win/loss; losses come specifically against opponents averaging
+~$77,004, matching this batch's own top-10 average of $75,712 almost
+exactly.
+
+Three gaps found, two real and fixed (see "Current agent design" above
+for the verified numbers), one tested and rejected:
+
+1. **Seed-buying throughput bug** (real, fixed) — 41-53 empty tiles
+   sitting idle late-game while seed stock sat at 0-1. This took two
+   attempts to actually fix: the first version's batch purchase was
+   nested inside the existing "stock == 0" check and almost never fired
+   in practice (a leftover seed is usually still in stock exactly at
+   hour 0), and separately, once it did start firing, an initial version
+   without a same-day gate drained a real test game's bank from $2,893
+   to $34 in three days (same shape as the earlier `BUY_PRODUCT WHEAT`
+   bug). Fixing both, plus discovering and fixing the HIRE-cap-crowds-
+   everything-else problem (see the hand-scaling bullet above), got a
+   clean, verified 97.5% (39/1, avg +$3,321) result.
+2. **Land capped at 3 quadrants** (real, fixed) — see "Current agent
+   design" above. 100% (40/0, avg +$3,261) in isolation.
+3. **Sheep re-attempted at a smaller scale, still rejected** — see the
+   animal-program bullet above for the full account. 0/40, avg -$28,200,
+   confirming the mixed-herd coordination limitation is real and not
+   just a matter of finding the right headcount.
+   - **The user pushed back on this rejection directly, and the
+     pushback was right to make**: testing sheep only against a
+     non-animal baseline (`main_baseline.py`/`main_v1`) doesn't answer
+     "does it lose against the *real* opponents it needs to beat" —
+     those opponents run animals too. Built a synthetic opponent
+     (`opponent_topfield.py`, not kept in the repo) using the current
+     strong `main.py` as its base with `ANIMAL_PLAN` forced to the real
+     top-10 target (8 cow + 4 sheep) — same coordination code, correct
+     target, used purely as a test bar. Result held up, more decisively
+     than the baseline test suggested: **cow-only `main.py` beat this
+     animal-heavy opponent 100% (30/0, avg +$22,537)**, while **the
+     sheep variant only won 30% (9/21, avg -$3,201)** against the exact
+     same opponent. This is stronger evidence than the baseline
+     comparison, not weaker — it shows cow-only doesn't just clear a low
+     bar, it dominates an opponent actually running the real top-10
+     animal strategy, and sheep still actively hurts even in that
+     specific matchup. The real gap to the top tier isn't "missing
+     sheep" — it's that this codebase's mixed-herd coordination
+     specifically can't execute what top players' code apparently can,
+     while the other changes this round (seed-buy fix, land cap, crop
+     mix) are already enough to beat that exact strategy once animals
+     are controlled for. **Worth remembering as a general lesson**: when
+     a real-replay finding says "top players do X," testing "does X help
+     us" against a baseline that doesn't do X is a different, weaker
+     question than testing against an opponent that does — build the
+     stronger test when the stakes justify it, as was done here.
+
+Combined (seed-buy fix + land cap; sheep excluded): 97.5% (39/1, avg
++$3,321) vs the committed baseline, **100% (40/0, avg +$38,549) vs
+`main_v1`** — the new strongest verified result of the project.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
@@ -419,43 +541,55 @@ operating principle here, not a one-off caution.
    `55386610` (2026-08-09), feed-coordination fix + small-scale animals
    (4 cows), verified locally at 90%/80% vs animals-off and 100% (40/0,
    avg +$34,072) vs `main_v1` (**public score 591.4** once it finished —
-   a real, meaningful jump from 494.6, consistent with the local
-   improvement actually holding on the real field) → **`55390463`
-   (2026-08-09)**, season-end planting caution added, verified at 87.5%
-   (35/5, avg +$1,864) directly against the `55386610` baseline and 100%
-   (40/0, avg +$36,113) vs `main_v1` — the new strongest local result.
-   Status `PENDING` at submit time. **No real ladder data on it yet.**
-   Fertilizer and price-momentum were also tried this round
-   and reverted (see "Optimization round" section) — not included.
+   a real, meaningful jump from 494.6) → `55390463` (2026-08-09),
+   season-end planting caution added, verified at 87.5% (35/5, avg
+   +$1,864) directly against the `55386610` baseline and 100% (40/0, avg
+   +$36,113) vs `main_v1` (**real ladder result 16/35 = 45.7%**, public
+   score 558.7 — an improvement over `55362811`'s 494.6, though not as
+   large a jump as the animal fix produced; this is what motivated the
+   third replay-analysis round) → **not yet submitted**: `main.py` now
+   additionally has the seed-buying-throughput fix, the hand-cap-to-8
+   fix, and the land cap at 3 quadrants (see "Current agent design" and
+   the "Third round" subsection above), verified at 97.5% (39/1, avg
+   +$3,321) directly against the `55390463` baseline and **100% (40/0,
+   avg +$38,549) vs `main_v1`** — the new strongest local result. Sheep
+   were re-attempted at a smaller scale and rejected again (0/40, avg
+   -$28,200) — not included. **Ready for the next submission slot**,
+   pending explicit go-ahead.
 2. Once submitted and real games accumulate, repeat the same replay
-   analysis methodology used twice now (download own real replays via
-   `kaggle competitions episodes <id> -v` then `kaggle competitions
+   analysis methodology used three times now (download own real replays
+   via `kaggle competitions episodes <id> -v` then `kaggle competitions
    replay <episode_id>` per game; sample day-by-day at `day*24 + 12`;
-   compare against a specific strong opponent's replays, not just
-   aggregate win rate) — this has surfaced every real fix found so far
-   and is clearly worth repeating as a matter of course each time a new
-   submission accumulates enough games, not just when stuck.
-3. **The animal program's ceiling is now understood, not just "on or
-   off"**: this codebase can reliably sustain ~4 animals but not the
-   ~20 (8 cow + 12-14 sheep) real top players run, because hand
-   coordination can't keep a large herd fed reliably yet (see the
-   feed-coordination bug fix above — real, but evidently not sufficient
-   on its own at full scale). The natural next lever, if pursuing this
-   further, is *why* — more hands specifically dedicated to animal care
-   past a certain herd size, a smarter routing rule that batches
-   multiple pasture visits per shed trip, or something else entirely.
-   Test any such change against the same animals-on-vs-off isolation
-   used this session, watching specifically for whether the herd count
-   holds steady over time rather than oscillating.
-4. **Land/tile utilization gap, not yet investigated**: both Seb and
-   HealthStone run meaningfully higher total occupied tiles (crops +
-   animal structures combined) than this agent — HealthStone in
-   particular reaches ~65-73 occupied tiles on only 3 quadrants (75
-   tiles), a higher utilization rate than this agent achieves even on 4.
-   Not touched this session; worth its own isolated investigation.
-5. Melon's `MELON_TARGET = 15` remains unchanged — both Seb's (13-18)
-   and HealthStone's real melon peaks fall inside that range, so no
-   evidence has surfaced across two replay batches now to revise it.
+   compare against a broad top-10 sample, not just 1-2 players if
+   available — the 13-player batch this round gave much cleaner signal
+   than earlier 1-2-player batches) — this has surfaced every real fix
+   found so far and is clearly worth repeating as a matter of course
+   each time a new submission accumulates enough games, not just when
+   stuck.
+3. **The animal program's ceiling is now understood at a deeper level,
+   not just "on or off" or "how many total"**: this codebase can
+   reliably sustain ~4 cow-only animals but not a mixed cow+sheep herd
+   at any scale tried so far (20 animals, then 12) — see the
+   animal-program bullet above. The natural next lever, if pursuing this
+   further, is *why mixing animal types specifically breaks down* — do
+   cow and sheep pastures compete for the same hand's attention in a way
+   same-type pastures don't? Is CARE/FEED routing type-agnostic in a way
+   that causes thrashing between two different queues? Test any such
+   change against the same animals-on-vs-off isolation used this
+   session, watching specifically for whether the herd count holds
+   steady over time rather than oscillating.
+4. **Land/tile utilization gap: partially addressed, not fully closed.**
+   The seed-buying fix reduced but didn't eliminate idle-tile buildup
+   late-game (still climbing to 30-37 empty tiles by day 26-28 in a real
+   test, down from 41-53 before the fix) — hand-coverage of a larger
+   occupied footprint may be a secondary bottleneck worth its own
+   isolated investigation (more hands reserved for planting specifically
+   vs. general fieldwork? smarter tile-claiming that prioritizes
+   long-idle tiles?).
+5. Melon's `MELON_TARGET = 15` remains unchanged — top-10 melon peaks
+   across all three replay rounds now (13-18, 13-18, and this round's
+   data) have consistently fallen inside that range, so no evidence has
+   surfaced to revise it.
 6. **Price momentum is a plausible idea that failed at the throttling
    layer specifically, not necessarily overall** — it regressed when
    used to adjust `SELL_CAP`, but the underlying signal

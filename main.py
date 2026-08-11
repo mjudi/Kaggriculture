@@ -540,6 +540,44 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # winning the "first crop found at zero" check below.
     field_counts_now = crop_counts_on_field(farm)
     eligible = planting_priority(day, money)
+    empty_tiles = sum(1 for _, _, t in unlocked_tiles(farm) if is_plantable(t))
+    # Once-per-day batch top-up, checked independently of the "count==0"
+    # trigger below -- a real bug found testing an earlier version of
+    # this fix: nesting the batch inside "seeds.get(crop, 0) == 0 and
+    # hour == 0" almost never actually fires, since a leftover seed from
+    # the previous day is usually still in stock right at hour 0 (the
+    # count only hits 0 later, mid-day, once that leftover seed gets
+    # planted) -- confirmed directly: WHEAT seed count sat at 0 or 1 at
+    # hour 0 on 4 of 5 sampled late-game days, so the batch branch was
+    # dead code in practice and the ungated 1-seed top-up kept winning
+    # every time. Checking "stock below what empty land actually needs"
+    # at hour 0, independent of whether it's exactly 0, fixes this.
+    # Buying only 1 seed/turn (the fallback below) can't keep pace once
+    # melon/strawberry age out of eligibility near the end (see
+    # planting_priority) and every freed tile wants a wheat seed at
+    # once -- confirmed directly in a real local run, 41-53 empty tiles
+    # by day 24-28 with wheat seed stock sitting at 0-1 the whole time.
+    # Top-10 real replays don't have this problem: they backfill freed
+    # land with wheat instead of leaving it idle (wheat tile count
+    # climbing to 48-50 by day 26 as strawberry winds down).
+    if hour == 0 and eligible and empty_tiles > 0:
+        top_crop = eligible[0]
+        cost = CROPS[top_crop]["seed_cost"]
+        have = seeds.get(top_crop, 0)
+        if have < empty_tiles and money - RESERVE >= cost:
+            target_qty = empty_tiles
+            if top_crop == "MELON":
+                target_qty = min(target_qty, MELON_TARGET - field_counts_now.get("MELON", 0))
+            need = max(0, target_qty - have)
+            affordable = (money - RESERVE) // cost
+            buy_qty = min(need, affordable, 10)
+            if buy_qty > 0:
+                orders.append(["BUY_SEED", top_crop, buy_qty])
+
+    # Same-day top-up: covers a genuine mid-day stockout (e.g. a crop
+    # that only became eligible partway through the day, or demand that
+    # outpaced even the batch above) without re-running the batch sizing
+    # logic, so this can't compound into repeated large purchases.
     if ("MELON" in eligible and field_counts_now.get("MELON", 0) < MELON_TARGET
             and seeds.get("MELON", 0) == 0 and money - RESERVE >= CROPS["MELON"]["seed_cost"]):
         orders.append(["BUY_SEED", "MELON", 1])
@@ -579,12 +617,32 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
         # cheap enough (even 12 hands costs ~$376/day, Fibonacci-scaled)
         # that it shouldn't be gated this conservatively once the
         # earliest days are past.
-        target_hands = min(12, 4 + day)
+        #
+        # Capped at 8, not 12: HIRE is sorted first before the final
+        # orders[:10] truncation (see below), which fixed HIRE being
+        # starved by other orders, but created the opposite problem --
+        # 12 HIRE orders alone fill the *entire* 10-slot turn budget,
+        # leaving zero room for anything else on hour 0 specifically.
+        # Confirmed directly: the once-per-day seed-buy batch below
+        # never fired on any real hour-0 turn once hands neared this
+        # cap, because HIRE alone had already consumed every slot.
+        # Capping at 8 still comfortably covers real top-10 replay data
+        # (observed hand counts ranged 3-14, frequently well under 12)
+        # while leaving room for other hour-0-gated purchases.
+        target_hands = min(8, 4 + day)
         for _ in range(target_hands):
             orders.append(["HIRE"])
 
     unlocked = farm.get("unlocked_quadrants", ["NW"])
-    if len(unlocked) < 4:
+    # Capped at 3 quadrants, not 4 -- every game across a fresh 13-player
+    # top-10 replay sample stayed at exactly 3 quadrants from around day
+    # 8 onward, never buying the 4th. This directly contradicts the
+    # earlier "4 quadrants beat 3" finding below, but that finding
+    # predates the HIRE-order-starvation fix, the seed-buying-throughput
+    # fix, and the strawberry-dominant crop mix all existing -- worth
+    # re-testing with the stronger baseline rather than assuming either
+    # conclusion still holds without checking.
+    if len(unlocked) < 3:
         next_cost = LAND_COSTS[len(unlocked) - 1]
         tiles = list(unlocked_tiles(farm))
         occupied = sum(1 for _, _, t in tiles if t is not None)
