@@ -547,15 +547,18 @@ operating principle here, not a one-off caution.
    +$36,113) vs `main_v1` (**real ladder result 16/35 = 45.7%**, public
    score 558.7 — an improvement over `55362811`'s 494.6, though not as
    large a jump as the animal fix produced; this is what motivated the
-   third replay-analysis round) → **not yet submitted**: `main.py` now
-   additionally has the seed-buying-throughput fix, the hand-cap-to-8
-   fix, and the land cap at 3 quadrants (see "Current agent design" and
-   the "Third round" subsection above), verified at 97.5% (39/1, avg
-   +$3,321) directly against the `55390463` baseline and **100% (40/0,
-   avg +$38,549) vs `main_v1`** — the new strongest local result. Sheep
-   were re-attempted at a smaller scale and rejected again (0/40, avg
-   -$28,200) — not included. **Ready for the next submission slot**,
-   pending explicit go-ahead.
+   third replay-analysis round) → **`55432490` (2026-08-11)**,
+   seed-buying-throughput fix + hand-cap-to-8 fix + land cap at 3
+   quadrants (see "Current agent design" and the "Third round"
+   subsection above), verified at 97.5% (39/1, avg +$3,321) directly
+   against the `55390463` baseline and **100% (40/0, avg +$38,549) vs
+   `main_v1`** — the new strongest local result. Sheep were re-attempted
+   at a smaller scale, initially rejected against a non-animal baseline,
+   then re-tested against a synthetic opponent actually running the real
+   top-10 animal strategy per user pushback (see the animal-program
+   bullet above) — still rejected, more decisively (cow-only 100%
+   vs. sheep's 30% against that same opponent). Status `PENDING` at
+   submit time. **No real ladder data on it yet.**
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used three times now (download own real replays
    via `kaggle competitions episodes <id> -v` then `kaggle competitions
