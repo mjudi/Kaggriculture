@@ -643,15 +643,15 @@ operating principle here, not a one-off caution.
    against the `55390463` baseline and 100% (40/0, avg +$38,549) vs
    `main_v1` (**real ladder result 27/61 = 44.3%**, public score 556.1
    — roughly flat vs `55390463`'s 558.7, and this is what motivated the
-   fourth replay-analysis round) → **not yet submitted**: `main.py` now
-   additionally has `MELON_TARGET` lowered to 11 and the land-timing fix
-   (see "Current agent design" and the "Fourth round" subsection above),
-   verified at 87.5% (35/5, avg +$1,680) directly against the
-   `55432490` baseline and **100% (40/0, avg +$37,574) vs `main_v1`**.
-   **Ready for the next submission slot**, pending explicit go-ahead. An
-   open tension (real 8cow+4sheep opponents beating this agent
-   decisively despite a synthetic version of the same build losing
-   100%/30-0 to cow-only in the prior round) is not yet resolved — see
+   fourth replay-analysis round) → **`55534146` (2026-08-15)**,
+   `MELON_TARGET` lowered to 11 + the land-timing fix (see "Current
+   agent design" and the "Fourth round" subsection above), verified at
+   87.5% (35/5, avg +$1,680) directly against the `55432490` baseline
+   and **100% (40/0, avg +$37,574) vs `main_v1`**. Status `PENDING` at
+   submit time. **No real ladder data on it yet.** An open tension (real
+   8cow+4sheep opponents beating this agent decisively despite a
+   synthetic version of the same build losing 100%/30-0 to cow-only in
+   the prior round) is not yet resolved — see
    item 3 below.
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used three times now (download own real replays
