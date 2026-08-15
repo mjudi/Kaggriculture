@@ -106,10 +106,19 @@ LIQUIDATION_START_DAY = SEASON_DAYS - 4   # sell harder once the season's almost
 # wheat/day each -- lower than earlier attempts at a much larger herd,
 # since a smaller buffer is easier to keep topped up reliably.
 WHEAT_FEED_BUFFER = 20
-# Matches the sweet spot both a real successful opponent (15 tiles) and
-# a well-verified public notebook (4-16 tiles) independently converged
-# on -- past this, melon's steep glut curve starts crashing its own price.
-MELON_TARGET = 15
+# Lowered from 15: a win/loss split across 61 real games showed our own
+# melon count (~15.7 tiles avg) already exceeds what real strong
+# opponents run (~12 peak, from three separate named players' replays
+# with near-identical crop counts to each other -- the same shared
+# public-template signature seen in every prior replay round), while
+# our own strawberry count (~15 avg) badly lags theirs (36 by day 14).
+# Melon also gets explicit buy-priority over strawberry below (it's
+# eligible starting day >= 2 vs strawberry's day >= 6), so an
+# oversized target was giving melon a head start on both capital and
+# tile space during exactly the window that determines how large the
+# strawberry footprint can eventually grow. Lowered to roughly match
+# what's actually working in real play.
+MELON_TARGET = 11
 
 LAND_COSTS = [1000, 2000, 4000]  # cost of the 2nd, 3rd, 4th quadrant, in that order
 
@@ -541,6 +550,30 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     field_counts_now = crop_counts_on_field(farm)
     eligible = planting_priority(day, money)
     empty_tiles = sum(1 for _, _, t in unlocked_tiles(farm) if is_plantable(t))
+
+    # Land-purchase readiness, computed early so the seed-buy batch below
+    # can reserve toward it instead of spending every spare dollar on
+    # seed. A real gap found this round: real opponents reach 3
+    # quadrants by day 8, this agent averaged day 18-22 across 61 real
+    # games. Traced one loss turn-by-turn -- single-quadrant utilization
+    # was already 92-96% by day 6-8 (well past the utilization > 0.7
+    # gate below), but money was only $272 against a $1,000 land cost.
+    # The gate wasn't the constraint, available capital was: the seed-buy
+    # batch (and HIRE) can spend down to RESERVE every turn, so money
+    # never gets the chance to accumulate toward the next quadrant until
+    # spending naturally slows down on its own. land_pending here is
+    # true only once the *other* preconditions (day, utilization) are
+    # already met and cash is genuinely the only thing missing --
+    # letting the seed-buy batch shrink itself only in that specific
+    # window, not any time land isn't yet affordable.
+    unlocked_now = farm.get("unlocked_quadrants", ["NW"])
+    land_pending = False
+    if len(unlocked_now) < 3:
+        _tiles_now = list(unlocked_tiles(farm))
+        _occ_now = sum(1 for _, _, t in _tiles_now if t is not None)
+        _util_now = _occ_now / len(_tiles_now) if _tiles_now else 0
+        if day >= 4 and _util_now > 0.7 and money < LAND_COSTS[len(unlocked_now) - 1] + RESERVE:
+            land_pending = True
     # Once-per-day batch top-up, checked independently of the "count==0"
     # trigger below -- a real bug found testing an earlier version of
     # this fix: nesting the batch inside "seeds.get(crop, 0) == 0 and
@@ -569,7 +602,16 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
             if top_crop == "MELON":
                 target_qty = min(target_qty, MELON_TARGET - field_counts_now.get("MELON", 0))
             need = max(0, target_qty - have)
-            affordable = (money - RESERVE) // cost
+            # Reserve toward the pending land purchase (see land_pending
+            # above) instead of spending every affordable dollar on
+            # seed -- without this, the seed batch alone can consume
+            # most of a turn's spare cash even after utilization and day
+            # gates for the next quadrant are already satisfied, so
+            # money never gets the chance to accumulate toward it.
+            spendable = money - RESERVE
+            if land_pending:
+                spendable = max(0, spendable - LAND_COSTS[len(unlocked_now) - 1])
+            affordable = spendable // cost
             buy_qty = min(need, affordable, 10)
             if buy_qty > 0:
                 orders.append(["BUY_SEED", top_crop, buy_qty])
@@ -629,7 +671,18 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
         # Capping at 8 still comfortably covers real top-10 replay data
         # (observed hand counts ranged 3-14, frequently well under 12)
         # while leaving room for other hour-0-gated purchases.
+        #
+        # Trimmed by 2 while land_pending (see above) -- confirmed
+        # directly in a real trace that HIRE's own fibonacci cost (~$54
+        # for 8 hires/day at day 6) was the actual reason money never
+        # accumulated toward the next quadrant, not the seed-buy batch
+        # this was first suspected to be. A small trim rather than
+        # skipping hiring outright, since hands are this codebase's most
+        # load-bearing lever for the rest of the economy -- cutting them
+        # off entirely risked doing more harm than the land delay itself.
         target_hands = min(8, 4 + day)
+        if land_pending:
+            target_hands = max(4, target_hands - 2)
         for _ in range(target_hands):
             orders.append(["HIRE"])
 

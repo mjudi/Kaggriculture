@@ -62,6 +62,25 @@ Key tunables and their current values, with the reasoning:
   seed-buying-throughput fix, and the strawberry-dominant crop mix all
   existing, so it was re-tested with the current stronger baseline rather
   than assumed to still hold, and the new data pointed the other way.
+- **Land-timing fix: capital is now reserved toward the next quadrant
+  once it's within reach, instead of racing HIRE/seed-buy for the same
+  spare cash.** A 61-game win/loss split (see "Fourth round" below)
+  found real opponents reach 3 quadrants by **day 8**; this agent
+  averaged **day 18-22**. Traced one loss turn-by-turn: single-quadrant
+  utilization was already 92-96% by day 6-8 (past the `utilization >
+  0.7` gate), but money sat around $200-$320 for days at a time against
+  a $1,000 land cost — the gate wasn't the constraint, capital was. The
+  actual drain was traced to HIRE's own fibonacci cost (~$54/day for 8
+  hires at day 6), not the seed-buy batch first suspected. Fix: a
+  `land_pending` flag (true once day/utilization preconditions are
+  already satisfied and only cash is missing) that (1) shrinks the
+  seed-buy batch's spendable amount by the pending land cost, and (2)
+  trims `target_hands` by 2 (not to zero — hands remain this codebase's
+  most load-bearing lever, cutting them off entirely risked doing more
+  harm than the land delay). Verified in isolation: 75.0% (30/10, avg
+  +$903) vs the committed baseline (a seed-buy-only version without the
+  HIRE trim tested weaker, 62.5%/+$294, confirming HIRE cost was the
+  larger factor).
 - **A real, previously undiagnosed bug: seed-buying couldn't keep pace
   with idle land late-game.** `build_market_orders`'s seed-buy block only
   ever purchased 1 seed per turn, gated on stock hitting exactly 0.
@@ -86,17 +105,23 @@ Key tunables and their current values, with the reasoning:
   still isn't fully zero even after this fix (hand-coverage of a
   larger occupied footprint may be a secondary, not-yet-addressed
   bottleneck) -- but the net result is still a clear win.
-- **Melon prioritized up to `MELON_TARGET = 15`** ahead of even
-  diversification for the rest. Informed by three independent sources
-  agreeing: a well-verified public notebook's coins-per-action analysis
-  (melon far above every other crop, ~250 vs strawberry's ~37, despite
-  strawberry's higher base price), a real ladder opponent (`yang20251228`)
-  running a pure 15-tile melon monoculture to a big win with only 5 hands
-  and no land at all, and a top-leaderboard player (`Liam S.`) beating
-  another top-tier strategy specifically by running more melon within an
-  otherwise near-identical build. Capped rather than unbounded — melon has a
-  steep glut curve, and both the public notebook and the real opponents
-  independently converged on roughly this range (4-16 tiles).
+- **Melon prioritized up to `MELON_TARGET = 11`** ahead of even
+  diversification for the rest — lowered from 15 this round. A win/loss
+  split across 61 real games (see "Fourth round" below) found this
+  agent's own melon count (~15.7 tiles avg) already exceeded what real
+  strong opponents run (~12 peak, from three separately-named players'
+  replays), while its own strawberry count (~15 avg) badly lagged
+  theirs (36 by day 14). Melon also gets explicit buy-priority over
+  strawberry in `build_market_orders` (eligible from day >= 2 vs
+  strawberry's day >= 6), so the old, larger target was giving melon a
+  head start on both capital and tile space during exactly the window
+  that determines how large the strawberry footprint can eventually
+  grow. Verified in isolation: 65.0% (26/14, avg +$170) vs the committed
+  baseline — a real but modest win on its own, stronger combined with
+  the land-timing fix below (87.5%, avg +$1,680 together). Original
+  reasoning for the target concept (melon's coins-per-action advantage,
+  its steep glut curve past a certain scale) is unchanged, just recalibrated
+  lower against fresher real data.
 - **Crop diversification: CARROT and TOMATO removed entirely from
   `planting_priority`.** Superseded by a real-ladder-informed rewrite (see
   "Real ladder replay analysis" below) — the earlier `CROP_WEIGHT`-weighted
@@ -509,6 +534,70 @@ Combined (seed-buy fix + land cap; sheep excluded): 97.5% (39/1, avg
 +$3,321) vs the committed baseline, **100% (40/0, avg +$38,549) vs
 `main_v1`** — the new strongest verified result of the project.
 
+### Fourth round: win/loss split on 61 real games, crop rebalance, land timing
+
+The user uploaded a single large batch this round (61 real games of the
+current submission `55432490`, no separate top-10 zip) and asked
+specifically for wins and losses to be compared directly, not just
+aggregated — a genuinely useful framing that hadn't been done as
+explicitly in prior rounds.
+
+**Real result: 27W/34L = 44.3%**, consistent with the prior round's
+45.7% (a stable number across two large batches, not noise). Comparing
+wins and losses directly: **this agent's own play is nearly identical
+in both** (same crop-mix shape, same land timing, same 4-cow animal
+count, day-by-day money within a few thousand dollars either way) — the
+determining factor is who's on the other side, not what we do
+differently game to game. Wins average opponent final money of
+$30,987; losses average $66,628 — matches every prior round's finding
+that the gap to the top tier is structural, not variance.
+
+Checked three of the worst losses in detail (`Adarsh`,
+`Boiled-Sweet-Potato`, `Yubo WANG`) — **near-identical crop and animal
+counts to each other**, the same shared-template signature seen in
+every prior round, running 8 cow + 4 sheep. This is the *exact* scale
+the previous round's synthetic-opponent test showed cow-only beating
+100% (30/0) — but here, real opponents at that same scale are winning
+by 2.5-4.5x. **This is a real, important tension, not yet fully
+resolved**: the synthetic opponent shared our own coordination code
+with the animal target forced to match, so it necessarily inherited
+whatever executes that target *as our codebase would*. These real
+opponents are executing something that wins decisively at the same
+target — meaning either their code coordinates a mixed herd
+meaningfully better than ours can, or (more likely, per the analysis
+below) the animal difference isn't actually the deciding factor in
+these particular losses and something else in their build is. Two
+other gaps were found and are more directly actionable:
+
+1. **Strawberry under-investment relative to melon.** This agent's own
+   strawberry tile count peaked at ~15 average (max 20) across all 61
+   games; the real opponents reach 36 by day 14. Meanwhile this agent's
+   own melon count (~15.7 avg) was already *higher* than what the real
+   opponents run (~12 peak). See the `MELON_TARGET` bullet above for
+   the fix and verified result (65.0%, avg +$170 in isolation).
+2. **Land timing.** Real opponents reach 3 quadrants by day 8; this
+   agent averaged day 18-22. Traced turn-by-turn and found the
+   `utilization > 0.7` gate was already satisfied by day 6-8 in a real
+   loss — capital was the actual constraint (HIRE's fibonacci cost, not
+   the newer seed-buy batch, which was the first suspect but turned out
+   not to be the larger factor once traced directly). See the
+   "land-timing fix" bullet above for the mechanism and verified result
+   (75.0%, avg +$903 in isolation).
+
+Combined (crop rebalance + land-timing fix): **87.5% (35/5, avg
++$1,680)** vs the committed baseline — each individually more modest
+(65.0%/$170 and 75.0%/$903) but compounding well together. **100%
+(40/0, avg +$37,574) vs `main_v1`.**
+
+**Open tension carried forward**: even with both fixes, this doesn't
+directly address why real 8cow+4sheep opponents are still beating a
+synthetic version of the same build. The land-timing and crop-mix gaps
+found this round may explain a meaningful part of that gap on their
+own (a stronger baseline economy competing against the same animal
+strategy), but this hasn't been re-verified against a fresh synthetic
+opponent since these fixes landed — worth doing before assuming the
+tension is resolved. See Open threads below.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
@@ -547,18 +636,23 @@ operating principle here, not a one-off caution.
    +$36,113) vs `main_v1` (**real ladder result 16/35 = 45.7%**, public
    score 558.7 — an improvement over `55362811`'s 494.6, though not as
    large a jump as the animal fix produced; this is what motivated the
-   third replay-analysis round) → **`55432490` (2026-08-11)**,
+   third replay-analysis round) → `55432490` (2026-08-11),
    seed-buying-throughput fix + hand-cap-to-8 fix + land cap at 3
    quadrants (see "Current agent design" and the "Third round"
    subsection above), verified at 97.5% (39/1, avg +$3,321) directly
-   against the `55390463` baseline and **100% (40/0, avg +$38,549) vs
-   `main_v1`** — the new strongest local result. Sheep were re-attempted
-   at a smaller scale, initially rejected against a non-animal baseline,
-   then re-tested against a synthetic opponent actually running the real
-   top-10 animal strategy per user pushback (see the animal-program
-   bullet above) — still rejected, more decisively (cow-only 100%
-   vs. sheep's 30% against that same opponent). Status `PENDING` at
-   submit time. **No real ladder data on it yet.**
+   against the `55390463` baseline and 100% (40/0, avg +$38,549) vs
+   `main_v1` (**real ladder result 27/61 = 44.3%**, public score 556.1
+   — roughly flat vs `55390463`'s 558.7, and this is what motivated the
+   fourth replay-analysis round) → **not yet submitted**: `main.py` now
+   additionally has `MELON_TARGET` lowered to 11 and the land-timing fix
+   (see "Current agent design" and the "Fourth round" subsection above),
+   verified at 87.5% (35/5, avg +$1,680) directly against the
+   `55432490` baseline and **100% (40/0, avg +$37,574) vs `main_v1`**.
+   **Ready for the next submission slot**, pending explicit go-ahead. An
+   open tension (real 8cow+4sheep opponents beating this agent
+   decisively despite a synthetic version of the same build losing
+   100%/30-0 to cow-only in the prior round) is not yet resolved — see
+   item 3 below.
 2. Once submitted and real games accumulate, repeat the same replay
    analysis methodology used three times now (download own real replays
    via `kaggle competitions episodes <id> -v` then `kaggle competitions
@@ -569,30 +663,44 @@ operating principle here, not a one-off caution.
    found so far and is clearly worth repeating as a matter of course
    each time a new submission accumulates enough games, not just when
    stuck.
-3. **The animal program's ceiling is now understood at a deeper level,
-   not just "on or off" or "how many total"**: this codebase can
-   reliably sustain ~4 cow-only animals but not a mixed cow+sheep herd
-   at any scale tried so far (20 animals, then 12) — see the
-   animal-program bullet above. The natural next lever, if pursuing this
-   further, is *why mixing animal types specifically breaks down* — do
-   cow and sheep pastures compete for the same hand's attention in a way
-   same-type pastures don't? Is CARE/FEED routing type-agnostic in a way
-   that causes thrashing between two different queues? Test any such
-   change against the same animals-on-vs-off isolation used this
-   session, watching specifically for whether the herd count holds
-   steady over time rather than oscillating.
-4. **Land/tile utilization gap: partially addressed, not fully closed.**
-   The seed-buying fix reduced but didn't eliminate idle-tile buildup
-   late-game (still climbing to 30-37 empty tiles by day 26-28 in a real
-   test, down from 41-53 before the fix) — hand-coverage of a larger
-   occupied footprint may be a secondary bottleneck worth its own
-   isolated investigation (more hands reserved for planting specifically
-   vs. general fieldwork? smarter tile-claiming that prioritizes
-   long-idle tiles?).
-5. Melon's `MELON_TARGET = 15` remains unchanged — top-10 melon peaks
-   across all three replay rounds now (13-18, 13-18, and this round's
-   data) have consistently fallen inside that range, so no evidence has
-   surfaced to revise it.
+3. **A real, unresolved tension between the synthetic-opponent test and
+   real ladder results.** The third round's synthetic 8cow+4sheep
+   opponent (built from this codebase, animal target forced to match)
+   lost 100%/30-0 to cow-only. The fourth round's real replays show
+   named opponents at that same scale beating this agent decisively
+   (2.5-4.5x margins). Two non-exclusive explanations, neither
+   confirmed yet: (a) real opponents' code coordinates a mixed herd
+   meaningfully better than this codebase's synthetic stand-in could —
+   the animal-program ceiling bullet above (cow-only sustainable, mixed
+   herd oscillates at any scale tried) may only describe *this
+   codebase's* ceiling, not animals-in-general; (b) the land-timing and
+   melon/strawberry gaps found this round were large enough that they,
+   not the animal difference, explain most of these particular losses —
+   the synthetic opponent was tested before either fix existed. **Next
+   step: re-run the synthetic-opponent test (8cow+4sheep vs cow-only)
+   with the current, stronger `main.py`** (crop rebalance + land-timing
+   fix both applied) to see if the earlier 100%/30-0 result still holds
+   at the improved baseline, or if closing the other two gaps changes
+   the picture. If it still holds, that's real evidence for
+   explanation (a) and would justify a fresh, careful sheep-coordination
+   investigation (see the animal-program bullet's suggested angles). If
+   it doesn't hold, that's evidence for (b) and confirms the other two
+   fixes were the real lever, not animals.
+4. **Land/tile utilization gap: partially addressed at two different
+   layers now, not fully closed.** The third round's seed-buying fix
+   reduced but didn't eliminate idle-tile buildup late-game (30-37 empty
+   tiles by day 26-28, down from 41-53). The fourth round's land-timing
+   fix addresses a different, earlier-game symptom (slow 2nd/3rd
+   quadrant purchases) via capital reservation, not tile-fill rate
+   directly. Worth checking whether empty-tile counts late-game have
+   also improved as a side effect of reaching land earlier, or whether
+   that's still a separate, live problem needing its own fix (more
+   hands reserved for planting specifically? smarter tile-claiming that
+   prioritizes long-idle tiles?).
+5. Melon's `MELON_TARGET` was lowered from 15 to 11 this round (see
+   "Current agent design" above) — first change to this constant since
+   it was introduced. Re-verify against future replay batches whether
+   11 is close to right or needs further adjustment.
 6. **Price momentum is a plausible idea that failed at the throttling
    layer specifically, not necessarily overall** — it regressed when
    used to adjust `SELL_CAP`, but the underlying signal
