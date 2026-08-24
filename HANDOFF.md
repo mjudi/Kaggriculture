@@ -756,14 +756,14 @@ operating principle here, not a one-off caution.
    in-range games = 48.6%, public score 546.6 — actually *worse* than
    `55432490`'s 559.7, despite testing as an improvement; this is what
    triggered the fifth round and the discovery that MELON_TARGET was
-   never actually enforced**) → **not yet submitted**: `main.py` now has
-   the real `MELON_TARGET` enforcement fix and the seed-buy-batch fix
-   that actually lets strawberry compete for bulk purchases (see
-   "Current agent design" and the "Fifth round" subsection above),
-   verified at 100% (60/60, avg ~+$23,000) against a synthetic
-   8cow+4sheep opponent across two independent batches and **100% (40/0,
-   avg +$33,929) vs `main_v1`**. **Ready for the next submission slot**,
-   pending explicit go-ahead. This round is the first where the core fix
+   never actually enforced**) → **`55731391` (2026-08-23)**, the real
+   `MELON_TARGET` enforcement fix and the seed-buy-batch fix that
+   actually lets strawberry compete for bulk purchases (see "Current
+   agent design" and the "Fifth round" subsection above), verified at
+   100% (60/60, avg ~+$23,000) against a synthetic 8cow+4sheep opponent
+   across two independent batches and **100% (40/0, avg +$33,929) vs
+   `main_v1`**. Status `PENDING` at submit time. **No real ladder data
+   on it yet.** This round is the first where the core fix
    was validated against a synthetic strong opponent instead of relying
    on `main_baseline.py`/`main_v1` alone — every fix that pushed more
    strawberry this round actually *regressed* against those weak
