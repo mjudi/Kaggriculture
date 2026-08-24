@@ -105,23 +105,47 @@ Key tunables and their current values, with the reasoning:
   still isn't fully zero even after this fix (hand-coverage of a
   larger occupied footprint may be a secondary, not-yet-addressed
   bottleneck) -- but the net result is still a clear win.
+- **A second real bug in the same batch-buy block, found this round:
+  `top_crop` was always `eligible[0]`** (main.py's seed-buy batch), and
+  `eligible` from `planting_priority` always lists WHEAT first when it's
+  eligible -- which is essentially always. So the batch purchase above
+  only ever restocked wheat; `CROP_WEIGHT` never had any effect on
+  *buying*, only on *planting* once seeds were already in hand.
+  Confirmed directly: strawberry seed stock never exceeded 1 the entire
+  game in a real local trace, regardless of `CROP_WEIGHT`'s value --
+  strawberry was structurally starved at the purchase stage, explaining
+  its real ~15-tile ceiling vs strong opponents' 36 far better than the
+  diversification weight ever could. See "Fifth round" below for the
+  fix (picking `top_crop` by the same under-representation ratio used
+  for planting, but excluding WHEAT from that specific comparison) and
+  the two real over-correction bugs found getting there.
 - **Melon prioritized up to `MELON_TARGET = 11`** ahead of even
-  diversification for the rest — lowered from 15 this round. A win/loss
-  split across 61 real games (see "Fourth round" below) found this
-  agent's own melon count (~15.7 tiles avg) already exceeded what real
-  strong opponents run (~12 peak, from three separately-named players'
+  diversification for the rest — lowered from 15 the round before this
+  one. A win/loss split across 61 real games found this agent's own
+  melon count (~15.7 tiles avg) already exceeded what real strong
+  opponents run (~12 peak, from three separately-named players'
   replays), while its own strawberry count (~15 avg) badly lagged
-  theirs (36 by day 14). Melon also gets explicit buy-priority over
-  strawberry in `build_market_orders` (eligible from day >= 2 vs
-  strawberry's day >= 6), so the old, larger target was giving melon a
-  head start on both capital and tile space during exactly the window
-  that determines how large the strawberry footprint can eventually
-  grow. Verified in isolation: 65.0% (26/14, avg +$170) vs the committed
-  baseline — a real but modest win on its own, stronger combined with
-  the land-timing fix below (87.5%, avg +$1,680 together). Original
-  reasoning for the target concept (melon's coins-per-action advantage,
-  its steep glut curve past a certain scale) is unchanged, just recalibrated
-  lower against fresher real data.
+  theirs (36 by day 14). Verified in isolation at the time: 65.0%
+  (26/14, avg +$170) vs the committed baseline.
+- **A real, previously undiagnosed bug: `MELON_TARGET` was never
+  actually enforced as a hard cap** (see "Fifth round" below for the
+  full account). It only gated a *priority override* in
+  `immediate_action`'s planting block ("plant melon first if under
+  target") — once at/over target, melon fell through to the normal
+  `CROP_WEIGHT` diversification sort and could still win there and get
+  planted, since melon's weight (1) was the same as wheat's. Confirmed
+  directly in a real local trace: field count climbed to 12 and 13 in
+  turns immediately after already being at the target of 11. Confirmed
+  against real replay data too: **every one of 72 real games on the
+  submission that shipped `MELON_TARGET = 11` showed melon peaking at
+  15-18, never at or below 11** — the fix that was verified and shipped
+  never actually took effect the way local testing checked for it (win/
+  loss outcomes, not the field-count ceiling directly). This is very
+  likely why that submission scored *worse* (546.6) than the one before
+  it (559.7). Fixed by excluding melon from the `available` crop-
+  selection list entirely once at/over target, not just skipping the
+  priority override — confirmed directly: melon now holds at target and
+  stays there in a real local trace.
 - **Crop diversification: CARROT and TOMATO removed entirely from
   `planting_priority`.** Superseded by a real-ladder-informed rewrite (see
   "Real ladder replay analysis" below) — the earlier `CROP_WEIGHT`-weighted
@@ -598,6 +622,88 @@ strategy), but this hasn't been re-verified against a fresh synthetic
 opponent since these fixes landed — worth doing before assuming the
 tension is resolved. See Open threads below.
 
+### Fifth round: the MELON_TARGET fix never actually worked, and why
+    `main_baseline.py` gave misleading signal on the real fix
+
+The user was frustrated: public score had been stuck below 600 across
+six submissions with no clear upward trend, and asked for an honest
+assessment, not another marginal tweak. This round found the two
+biggest, most consequential bugs of the whole project.
+
+**155 real games analyzed, episode IDs spanning the full session
+history; 72 of them fall within the current submission's actual
+episode range** (confirmed via `kaggle competitions episodes
+55534146`). Real win rate: 48.6% on the current submission, 44.3-46.5%
+on older ones — a stable ceiling, not improving meaningfully submission
+to submission. Same recurring pattern as every round: this agent's own
+play is nearly identical in wins and losses; losses average opponent
+final money of $72,117, 2.6x this agent's own.
+
+**Bug #1 — `MELON_TARGET` was never actually a hard cap.** See the
+bullet in "Current agent design" above for the full mechanism. The
+short version: the cap only gated a priority *override*, never actually
+excluded melon from the fallback diversification pool once at/over
+target. **Every one of 72 real games on the submission that shipped the
+"lowered MELON_TARGET" fix showed melon peaking at 15-18, never at or
+below the supposed cap of 11.** This is very likely why that submission
+scored *worse* (546.6) than the one before it (559.7) — a fix that was
+verified and shipped never took effect the way it was tested (win/loss
+outcomes, not a direct field-count check). Fixed properly this round.
+
+**Bug #2 — the seed-buy batch never actually served strawberry.** See
+the bullet in "Current agent design" above. `top_crop` was always
+`eligible[0]` (wheat), so `CROP_WEIGHT` had zero effect on purchasing,
+only on planting once seeds were already in hand. Fixing this took
+three attempts, each one a real lesson:
+
+1. First attempt: picked `top_crop` by the same
+   `field_count/CROP_WEIGHT` ratio `immediate_action` uses for
+   planting. Result: WHEAT won that comparison at almost every single
+   hour-0 check, confirmed via a debug trace (`top_crop=WHEAT` on every
+   sampled turn from day 14-18) — WHEAT is a fast one-time crop, often
+   caught with a near-zero *field count* right at the hour-0 snapshot
+   (harvested, not yet replanted), so its ratio looked "most
+   under-represented" almost every time even though its real long-run
+   share was fine. Fixed by excluding WHEAT from the batch-buy
+   comparison entirely (its own 1-seed same-day top-up is adequate on
+   its own, since it's cheap and fast-cycling).
+2. Second attempt: sized the batch purchase to the full empty-tile
+   count. Result: severe regression, 2.5% (1/39, avg -$2,464) vs the
+   committed baseline — strawberry seed stock reached 17 while field
+   count only grew to 18 over the same stretch, $1,700+ in cash sitting
+   idle as unplanted seed because hand coverage can't plant that fast
+   in one day. Buying more than can be planted is real capital waste,
+   worse than under-buying. Fixed by capping the batch to a realistic
+   one-day planting capacity (`1 + hand_count`) instead of the total
+   empty-tile backlog.
+3. Third attempt (final): capacity-capped batch. Seed stock now stays
+   lean (0-1, no idle capital) and strawberry reaches ~19 tiles in a
+   real trace, up from ~12-14 before — still tested as a regression
+   against `main_baseline.py` specifically (25.0%, avg -$719).
+
+**The `main_baseline.py` regression was the wrong signal, confirmed by
+building a synthetic strong opponent.** Every fix this round that
+pushed more strawberry lost against `main_baseline.py`/`main_v1.py`
+specifically — strong evidence those weak, non-adaptive opponents can
+still win via melon's raw coins-per-action efficiency even when melon
+is bugged/oversized, in a way the real competitive tier apparently
+can't. Built a synthetic opponent (`main.py`-based, `ANIMAL_PLAN`
+forced to 8 cow + 4 sheep matching real replay data — not kept in the
+repo) and re-tested there instead: **both the melon-cap fix alone and
+the full combined fix beat it 100% across two independent 30-seed
+batches (60/60 total), avg margin ~+$23,000.** This is the same
+methodology and the same lesson as the third round's sheep re-test:
+when a fix looks bad against `main_baseline.py` but the underlying
+diagnosis is solid, don't trust the weak-baseline result on its own —
+build the stronger test.
+
+**Combined result: 100% (40/0, avg +$33,929) vs `main_v1`, 100% (60/60,
+avg ~+$23,000) vs a synthetic 8cow+4sheep opponent modeled on real
+replay data.** This is the first round where the core fix was
+validated against something resembling the actual competitive tier,
+not just a fixed weak baseline — worth treating as the standard going
+forward, not a one-off.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
@@ -643,65 +749,101 @@ operating principle here, not a one-off caution.
    against the `55390463` baseline and 100% (40/0, avg +$38,549) vs
    `main_v1` (**real ladder result 27/61 = 44.3%**, public score 556.1
    — roughly flat vs `55390463`'s 558.7, and this is what motivated the
-   fourth replay-analysis round) → **`55534146` (2026-08-15)**,
-   `MELON_TARGET` lowered to 11 + the land-timing fix (see "Current
-   agent design" and the "Fourth round" subsection above), verified at
-   87.5% (35/5, avg +$1,680) directly against the `55432490` baseline
-   and **100% (40/0, avg +$37,574) vs `main_v1`**. Status `PENDING` at
-   submit time. **No real ladder data on it yet.** An open tension (real
-   8cow+4sheep opponents beating this agent decisively despite a
-   synthetic version of the same build losing 100%/30-0 to cow-only in
-   the prior round) is not yet resolved — see
-   item 3 below.
+   fourth replay-analysis round) → `55534146` (2026-08-15),
+   `MELON_TARGET` lowered to 11 + the land-timing fix, verified at 87.5%
+   (35/5, avg +$1,680) directly against the `55432490` baseline and
+   100% (40/0, avg +$37,574) vs `main_v1` (**real ladder result 72/155
+   in-range games = 48.6%, public score 546.6 — actually *worse* than
+   `55432490`'s 559.7, despite testing as an improvement; this is what
+   triggered the fifth round and the discovery that MELON_TARGET was
+   never actually enforced**) → **not yet submitted**: `main.py` now has
+   the real `MELON_TARGET` enforcement fix and the seed-buy-batch fix
+   that actually lets strawberry compete for bulk purchases (see
+   "Current agent design" and the "Fifth round" subsection above),
+   verified at 100% (60/60, avg ~+$23,000) against a synthetic
+   8cow+4sheep opponent across two independent batches and **100% (40/0,
+   avg +$33,929) vs `main_v1`**. **Ready for the next submission slot**,
+   pending explicit go-ahead. This round is the first where the core fix
+   was validated against a synthetic strong opponent instead of relying
+   on `main_baseline.py`/`main_v1` alone — every fix that pushed more
+   strawberry this round actually *regressed* against those weak
+   baselines specifically, which would have looked like a reason to
+   revert a fix that was actually correct. The open tension from the
+   prior round (real 8cow+4sheep opponents beating this agent decisively
+   despite a synthetic version losing 100%/30-0 to cow-only) may now be
+   substantially explained by these two bugs rather than an animal-
+   coordination gap — worth re-checking once real ladder data comes in
+   on this submission.
 2. Once submitted and real games accumulate, repeat the same replay
-   analysis methodology used three times now (download own real replays
+   analysis methodology used four times now (download own real replays
    via `kaggle competitions episodes <id> -v` then `kaggle competitions
    replay <episode_id>` per game; sample day-by-day at `day*24 + 12`;
    compare against a broad top-10 sample, not just 1-2 players if
-   available — the 13-player batch this round gave much cleaner signal
-   than earlier 1-2-player batches) — this has surfaced every real fix
-   found so far and is clearly worth repeating as a matter of course
-   each time a new submission accumulates enough games, not just when
-   stuck.
-3. **A real, unresolved tension between the synthetic-opponent test and
-   real ladder results.** The third round's synthetic 8cow+4sheep
-   opponent (built from this codebase, animal target forced to match)
-   lost 100%/30-0 to cow-only. The fourth round's real replays show
-   named opponents at that same scale beating this agent decisively
-   (2.5-4.5x margins). Two non-exclusive explanations, neither
-   confirmed yet: (a) real opponents' code coordinates a mixed herd
-   meaningfully better than this codebase's synthetic stand-in could —
-   the animal-program ceiling bullet above (cow-only sustainable, mixed
-   herd oscillates at any scale tried) may only describe *this
-   codebase's* ceiling, not animals-in-general; (b) the land-timing and
-   melon/strawberry gaps found this round were large enough that they,
-   not the animal difference, explain most of these particular losses —
-   the synthetic opponent was tested before either fix existed. **Next
-   step: re-run the synthetic-opponent test (8cow+4sheep vs cow-only)
-   with the current, stronger `main.py`** (crop rebalance + land-timing
-   fix both applied) to see if the earlier 100%/30-0 result still holds
-   at the improved baseline, or if closing the other two gaps changes
-   the picture. If it still holds, that's real evidence for
-   explanation (a) and would justify a fresh, careful sheep-coordination
-   investigation (see the animal-program bullet's suggested angles). If
-   it doesn't hold, that's evidence for (b) and confirms the other two
-   fixes were the real lever, not animals.
-4. **Land/tile utilization gap: partially addressed at two different
+   available — the 13-player batch gave much cleaner signal than earlier
+   1-2-player batches) — this has surfaced every real fix found so far
+   and is clearly worth repeating as a matter of course each time a new
+   submission accumulates enough games, not just when stuck.
+3. **New verification rule, hard-earned this round**: for any future
+   cap/target constant (like `MELON_TARGET`), verify it directly against
+   the actual field state in a real local trace, not just win/loss
+   outcomes. `MELON_TARGET` was silently unenforced for at least two
+   full submission rounds because every isolated test checked whether
+   the change won or lost, never whether melon count actually stayed at
+   or below the number the constant claimed to enforce. A one-line check
+   ("does this field count exceed the constant meant to cap it, in a
+   real trace, across several sampled days") would have caught this
+   immediately. Apply this to `MELON_TARGET`'s current value (11) and
+   any similar constant introduced in the future.
+4. **New verification rule, also hard-earned this round**: when a fix
+   addressing a real, well-diagnosed problem tests as a *regression*
+   against `main_baseline.py`/`main_v1.py` specifically, don't
+   immediately trust that as the final word — those are weak,
+   non-adaptive opponents that can sometimes still win via a strategy
+   real strong opponents can't get away with (this round: melon's raw
+   coins-per-action efficiency winning locally even while structurally
+   bugged/oversized). Build or reuse a synthetic strong opponent
+   (`main.py`-based, `ANIMAL_PLAN`/`CROP_WEIGHT` forced to match real
+   replay data — not kept in the repo, rebuild as needed) and check
+   there before reverting a fix that's otherwise well-evidenced. This is
+   now the second time this exact pattern has appeared (the third
+   round's sheep re-test, this round's strawberry fixes) — treat it as
+   the standard next step whenever a diagnosed-correct fix looks bad
+   against the weak baselines, not a one-off escalation.
+5. **The synthetic-opponent tension from the third/fourth rounds is
+   likely (not yet 100% confirmed) explained by this round's two bugs,
+   not an animal-coordination gap.** The third round's synthetic
+   8cow+4sheep opponent lost 100%/30-0 to cow-only; the fourth round's
+   real replays showed named opponents at that same scale beating this
+   agent decisively. This round's synthetic-opponent re-test (same
+   8cow+4sheep animal target, but against the current `main.py` with
+   both the `MELON_TARGET` enforcement fix and the seed-buy fix applied)
+   came back 100% (60/60) in this agent's favor — a much stronger result
+   than the third round's already-favorable 100%/30-0. This is
+   consistent with explanation (b) from the earlier open item: the
+   melon/strawberry bugs were large enough to explain most of the real
+   losses, not a genuine animal-coordination deficit. Not fully
+   confirmed until real ladder data comes in on the next submission —
+   if the real win rate jumps meaningfully once these fixes are live,
+   that's strong confirmation; if it doesn't, the animal-coordination
+   question is still open and worth revisiting on its own.
+6. **Land/tile utilization gap: partially addressed at three different
    layers now, not fully closed.** The third round's seed-buying fix
    reduced but didn't eliminate idle-tile buildup late-game (30-37 empty
    tiles by day 26-28, down from 41-53). The fourth round's land-timing
    fix addresses a different, earlier-game symptom (slow 2nd/3rd
-   quadrant purchases) via capital reservation, not tile-fill rate
-   directly. Worth checking whether empty-tile counts late-game have
-   also improved as a side effect of reaching land earlier, or whether
-   that's still a separate, live problem needing its own fix (more
-   hands reserved for planting specifically? smarter tile-claiming that
-   prioritizes long-idle tiles?).
-5. Melon's `MELON_TARGET` was lowered from 15 to 11 this round (see
-   "Current agent design" above) — first change to this constant since
-   it was introduced. Re-verify against future replay batches whether
-   11 is close to right or needs further adjustment.
-6. **Price momentum is a plausible idea that failed at the throttling
+   quadrant purchases) via capital reservation. This round's seed-buy
+   fix addresses yet another angle (strawberry seed supply) but
+   confirmed a *new* bottleneck one layer down: hand-coverage/planting
+   throughput (capping the batch to `1 + hand_count` was necessary
+   specifically because more hands can't physically plant faster than
+   that in one day). The natural next lever, if pursued: more hands
+   reserved for planting specifically, or smarter tile-claiming that
+   prioritizes long-idle tiles over nearest-tile-first.
+7. Melon's `MELON_TARGET` (11) is now actually enforced for the first
+   time — re-verify against future replay batches whether 11 is close
+   to right now that it's a real ceiling, since the value was originally
+   tuned against a cap that didn't hold.
+8. **Price momentum is a plausible idea that failed at the throttling
    layer specifically, not necessarily overall** — it regressed when
    used to adjust `SELL_CAP`, but the underlying signal
    (`price_momentum()`, still in the codebase's git history even though
@@ -711,7 +853,7 @@ operating principle here, not a one-off caution.
    worth re-attempting without a genuinely different application, not
    just a different multiplier (both tested multipliers this round
    landed in the same regressed range).
-7. **Module-level state confirmed to persist within an episode** (see
+9. **Module-level state confirmed to persist within an episode** (see
    "Optimization round" section) — this opens the door to other stateful
    features beyond price momentum (e.g. tracking the agent's own
    historical hand-idle-time, or a running count of harvests per crop)

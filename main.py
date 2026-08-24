@@ -379,6 +379,23 @@ def immediate_action(tile, seeds, day, money, want_coop, want_pasture, field_cou
         return "BUILD_PASTURE"
     if is_plantable(tile):
         available = [c for c in planting_priority(day, money) if seeds.get(c, 0) > 0]
+        # A real, previously undiagnosed bug: MELON_TARGET was only ever
+        # enforced as a priority *override* below (plant melon first if
+        # under target), never as an actual ceiling -- once melon
+        # reached the target, it fell through to the normal
+        # diversification sort and could still win there and get
+        # planted anyway, since CROP_WEIGHT gives it the same weight as
+        # wheat. Confirmed directly in a real local run: melon climbed
+        # to 12, then 13 tiles in turns right after the field count had
+        # already hit the target of 11, and real ladder replays showed
+        # melon consistently peaking at 15-18 despite MELON_TARGET being
+        # lowered to 11 last round -- the lower number changed when the
+        # override kicked in, but never actually stopped the overshoot.
+        # Excluding melon from the eligible pool entirely once at/over
+        # target, instead of just skipping the override, makes this a
+        # real hard cap.
+        if field_counts and field_counts.get("MELON", 0) >= MELON_TARGET:
+            available = [c for c in available if c != "MELON"]
         if available:
             if field_counts:
                 # Diversification weighted by CROP_WEIGHT rather than a
@@ -594,11 +611,53 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # land with wheat instead of leaving it idle (wheat tile count
     # climbing to 48-50 by day 26 as strawberry winds down).
     if hour == 0 and eligible and empty_tiles > 0:
-        top_crop = eligible[0]
+        # A real, previously undiagnosed bug: top_crop used to always be
+        # eligible[0] (wheat, essentially every day it's eligible), so
+        # the batch purchase below almost never targeted strawberry --
+        # CROP_WEIGHT only ever influenced which crop gets *planted*
+        # once seeds are already in hand, never which crop gets *bought*.
+        # Confirmed directly: strawberry seed stock never exceeded 1 the
+        # entire game in a real local trace, regardless of CROP_WEIGHT,
+        # because it was structurally starved at the purchase stage
+        # before diversification weight ever came into play -- matching
+        # real replay data showing this agent's strawberry stuck around
+        # 15 tiles vs strong opponents' 36.
+        #
+        # First attempt at a fix picked top_crop by the same
+        # field_count/CROP_WEIGHT ratio immediate_action uses for
+        # planting -- but that made WHEAT win almost every single hour-0
+        # check instead, confirmed directly via a debug trace (top_crop
+        # was WHEAT at every sampled hour-0 turn from day 14-18). Root
+        # cause: WHEAT is a fast one-time crop, harvested and not yet
+        # replanted often enough that its *field count* reads near zero
+        # at the exact hour-0 snapshot far more often than STRAWBERRY's
+        # (an ongoing crop that holds its count once planted) -- so
+        # WHEAT's ratio looked "most under-represented" almost every
+        # time even though its actual long-run share was fine. Fixed by
+        # excluding WHEAT from the batch entirely: it's cheap ($10) and
+        # fast-cycling enough that the existing 1-seed same-day top-up
+        # below keeps it adequately stocked without needing bulk
+        # purchases, and this reserves the batch for STRAWBERRY/MELON,
+        # the two crops that actually benefit from buying ahead in bulk.
+        batch_candidates = [c for c in eligible if c != "WHEAT"] or eligible
+        top_crop = min(batch_candidates, key=lambda c: field_counts_now.get(c, 0) / CROP_WEIGHT.get(c, 1))
         cost = CROPS[top_crop]["seed_cost"]
         have = seeds.get(top_crop, 0)
-        if have < empty_tiles and money - RESERVE >= cost:
-            target_qty = empty_tiles
+        # A second real bug found testing the fix above: sizing the
+        # batch to the *full* empty-tile count massively over-bought --
+        # confirmed directly, strawberry seed stock reached 17 while the
+        # field count only grew to 18 over the same stretch, $1,700+ in
+        # cash sitting idle as unplanted seed because hand coverage
+        # can't plant that fast in one day. That's worse than the
+        # original under-buying, not better (2.5% win rate, avg -$2,464
+        # vs the pre-fix baseline). Capped to a realistic one-day
+        # planting capacity instead -- roughly one planting per unit
+        # (farmer + hands), not the total empty-tile backlog, so the
+        # batch buys ahead by about a day's worth of capacity rather
+        # than the whole board's worth in one shot.
+        planting_capacity = 1 + len(farm.get("hands", []))
+        if have < planting_capacity and money - RESERVE >= cost:
+            target_qty = min(empty_tiles, planting_capacity)
             if top_crop == "MELON":
                 target_qty = min(target_qty, MELON_TARGET - field_counts_now.get("MELON", 0))
             need = max(0, target_qty - have)
