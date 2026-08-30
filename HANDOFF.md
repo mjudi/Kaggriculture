@@ -767,7 +767,7 @@ generalize to real ladder opponents, despite matching one real $109k `cg`
 replay. **The animal-dominant direction is now DISPROVEN on the real ladder
 -- do not revisit it without fundamentally new evidence.** Per the plan,
 `main.py` was reverted to `main_best567.py` (the 567.4 agent) and
-re-submitted. Broader lesson reinforced for the Nth time this session: a
+re-submitted (as `55888396`, 2026-08-30). Broader lesson reinforced for the Nth time this session: a
 single spectacular replay is not a strategy -- it may be a favorable
 matchup or variance, not a reproducible edge. The crop-dominant template
 (strawberry + melon + modest cow herd + 3 quadrants, `main_best567.py`)
