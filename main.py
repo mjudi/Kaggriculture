@@ -59,17 +59,20 @@ ANIMALS = {
     "SHEEP": {"cost": 500, "structure": "PASTURE", "product": "WOOL", "max_held": 6},
 }
 
-# ANIMAL-DOMINANT build, modeled DIRECTLY on the real winner "cg" ($109,957
-# with just 1 quadrant): 2 cow + 12 sheep + 7 goose = 21 animals, ALL on the
-# starting quadrant, no land expansion, almost no strawberry. Income comes
-# from wool (sheep), eggs (goose), milk (cow), and -- critically -- selling
-# fertilizer (cg sold 432 fertilizer units). Feed is BOUGHT in bulk (cg
-# bought 445 wheat over the game), sidestepping the homegrown-wheat and
-# land-expansion complexity that sank earlier crop-heavy rebuilds. Melon
-# grown early only for startup cash, then wound down. This build plays to
-# what this codebase can already do well (sustain animals) and avoids the
-# strawberry-throughput / land-expansion / capital-split problems entirely.
-ANIMAL_PLAN = [("SHEEP", 12), ("GOOSE", 7), ("COW", 2)]
+# Real top-10 leaderboard replays (Seb/HealthStone) run ~8 cow + 12-14
+# sheep sustained all game, and that full scale was tried directly here
+# -- lost decisively (0/40, avg -$26,986) even after fixing a real
+# feed-coordination bug, because this agent's hand-coordination can't
+# reliably keep a herd that large fed; it kept oscillating instead of
+# holding steady the way the real replays show. A much smaller target
+# (cow-only, no sheep) is what this codebase can actually sustain
+# without destarving -- verified: holds steady at 4/4 from around day
+# 14 onward with no oscillation, and wins 80-90% against the same agent
+# with animals off (avg +$10.6k/+$13.4k across two 40-seed batches).
+# This confirms the mechanism itself is good; it was a scale problem,
+# not a fundamentally bad idea -- raising this again should only happen
+# alongside further hand-coordination work, not on its own.
+ANIMAL_PLAN = [("COW", 4)]
 
 # CARROT and TOMATO removed from planting_priority entirely this round
 # (see that function's docstring), so their weights below are moot --
@@ -89,7 +92,7 @@ CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 1, "STRAWBERRY": 3, "MELON": 1
 # operation's actual output.
 SELL_CAP = {
     "WHEAT": 12, "CARROT": 12, "TOMATO": 6, "STRAWBERRY": 3,
-    "MELON": 5, "EGG": 10, "MILK": 10, "WOOL": 10, "FERTILIZER": 10,
+    "MELON": 5, "EGG": 8, "MILK": 10, "WOOL": 8,
 }
 
 # Lowered from 150: the reference replay spent down to $10 by the end of
@@ -102,14 +105,11 @@ LIQUIDATION_START_DAY = SEASON_DAYS - 4   # sell harder once the season's almost
 # Sized for the current ANIMAL_PLAN target of 4 animals eating 1
 # wheat/day each -- lower than earlier attempts at a much larger herd,
 # since a smaller buffer is easier to keep topped up reliably.
-# Shed wheat reserve kept back before selling. Sized for a 21-animal herd
-# eating 21 wheat/day -- feed is bought in bulk (see the herd-scaled buy in
-# build_market_orders), not grown, following the winner cg who bought 445
-# wheat over a game.
-WHEAT_FEED_BUFFER = 30
-# Melon is the early startup-cash crop (winner cg grew ~11-12 melon early,
-# then wound it down to fund the animal herd). Capped modestly.
-MELON_TARGET = 12
+WHEAT_FEED_BUFFER = 20
+# Matches the sweet spot both a real successful opponent (15 tiles) and
+# a well-verified public notebook (4-16 tiles) independently converged
+# on -- past this, melon's steep glut curve starts crashing its own price.
+MELON_TARGET = 15
 
 LAND_COSTS = [1000, 2000, 4000]  # cost of the 2nd, 3rd, 4th quadrant, in that order
 
@@ -478,11 +478,7 @@ def choose_animal_program(farm, private, day, in_flight):
     logic in the main job-assignment loop below."""
     if in_flight:
         return None
-    # ANIMAL-DOMINANT: gate lowered from hands>=6 to >=2 -- the winner cg
-    # ramped to 21 animals fast; waiting for a big workforce first makes
-    # that impossible. Animals are the whole economy here, so build them
-    # from the start.
-    if len(farm.get("hands", [])) < 2:
+    if len(farm.get("hands", [])) < 6:
         return None
     placed, _, _ = animal_program_status(farm)
     for animal, target in ANIMAL_PLAN:
@@ -506,21 +502,12 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # time it's harvested (confirmed from a replay: shed wheat sat at 0
     # on every single sampled day), which means the surplus threshold
     # choose_animal_program checks for can never actually be reached.
-    # FERTILIZER IS SOLD (ANIMAL-DOMINANT): the winner cg sold 432
-    # fertilizer units -- a huge free income stream from 21 animals
-    # (~1 fertilizer/animal/day, collected free). Keep a small reserve for
-    # FERTILIZE use, sell the rest. This was previously skipped entirely.
-    FERT_RESERVE = 8
+    # Everything else sells normally.
     for item, qty in shed.items():
-        if qty <= 0 or item in ANIMALS:
+        if qty <= 0 or item == "FERTILIZER" or item in ANIMALS:
             continue
-        if item == "FERTILIZER":
-            sellable = max(0, qty - FERT_RESERVE)
-        elif item == "WHEAT" and (has_animals or animal_pick) and not liquidating:
-            # With animals, DON'T sell wheat -- it's all feed. Selling it and
-            # rebuying (buy price > sell price) was a real money leak. Only
-            # sell wheat in the final liquidation window.
-            sellable = 0
+        if item == "WHEAT" and (has_animals or animal_pick):
+            sellable = max(0, qty - WHEAT_FEED_BUFFER * 2)
         else:
             sellable = qty
         cap = SELL_CAP.get(item, 5)
@@ -542,30 +529,9 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # repeatedly, which crashed a real test game's money from $1,973 to
     # $176 in three in-game days. Mirrors the hires_today==0 once-per-day
     # pattern already used for HIRE below.
-    # Bulk wheat buy sized to the actual herd (ANIMAL-DOMINANT): the winner
-    # cg BOUGHT 445 wheat over a game to feed 21 animals -- feed is bought,
-    # not grown, on this single-quadrant build. A flat 10/day starves any
-    # herd >10, so size to real consumption + reserve. Fired once per day
-    # (hour 0) so it doesn't re-fire every turn and overspend.
-    n_animals = sum(1 for _, _, t in unlocked_tiles(farm)
-                    if isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE") and t.get("animal"))
-    # Top up ANY turn the shed drops below the herd's ~2-day consumption,
-    # not just hour 0 -- a big herd (21 animals) eats through a once-a-day
-    # buy before the next morning and starves (confirmed: shed hit 0 for
-    # days, animals escaped 12->2). Buying only up to the deficit means it
-    # can't overspend even firing every turn. This is what lets a large
-    # bought-feed herd actually survive.
-    if (has_animals or animal_pick) and (n_animals > 0 or animal_pick):
-        # Keep ~2 days of feed on hand, no more -- over-buying wheat then
-        # selling the surplus back (buy price > sell price) was a real money
-        # leak (833 bought vs 311 sold back). Refill only when genuinely low.
-        want = max(n_animals, 4) * 2 + 8
-        have_w = shed.get("WHEAT", 0)
-        wprice = prices.get("WHEAT", 25)
-        if have_w < n_animals and money - RESERVE >= wprice:
-            buy = min(want - have_w, (money - RESERVE) // wprice, 30)
-            if buy > 0:
-                orders.append(["BUY_PRODUCT", "WHEAT", buy])
+    if (hour == 0 and (has_animals or animal_pick) and shed.get("WHEAT", 0) < WHEAT_FEED_BUFFER
+            and money - RESERVE >= prices.get("WHEAT", 25) * 10):
+        orders.append(["BUY_PRODUCT", "WHEAT", 10])
 
     # Melon seed gets first claim on the buy loop while under target,
     # same reasoning as the planting priority above -- otherwise it's
@@ -676,11 +642,7 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # fix, and the strawberry-dominant crop mix all existing -- worth
     # re-testing with the stronger baseline rather than assuming either
     # conclusion still holds without checking.
-    # ANIMAL-DOMINANT: NO land expansion. The winner cg stayed on 1 quadrant
-    # the entire game and scored $109,957 -- 21 animals + a little melon fit
-    # on 25 tiles, and every dollar goes to the herd instead of $1k-4k land
-    # that just adds movement overhead. `if False` disables the block below.
-    if False and len(unlocked) < 3:
+    if len(unlocked) < 3:
         next_cost = LAND_COSTS[len(unlocked) - 1]
         tiles = list(unlocked_tiles(farm))
         occupied = sum(1 for _, _, t in tiles if t is not None)
@@ -726,19 +688,7 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # atomically (once per queue slot, not per-unit lockstep like SELL/BUY),
     # so reordering it first is safe and doesn't interact with the
     # concurrent-lockstep logic those other order types depend on.
-    # Order priority within the 10-slot cap (ANIMAL-DOMINANT): feeding and
-    # herd-building come FIRST -- a starved animal escapes (catastrophic,
-    # irreversible), and the herd IS the economy here. BUY_PRODUCT (wheat
-    # feed) + BUY_ANIMAL, then HIRE, then everything else. A prior HIRE-first
-    # sort starved the feed buy on hire turns and the herd collapsed.
-    def order_rank(o):
-        op = o[0]
-        if op in ("BUY_PRODUCT", "BUY_ANIMAL"):
-            return 0
-        if op == "HIRE":
-            return 1
-        return 2
-    orders.sort(key=order_rank)
+    orders.sort(key=lambda o: 0 if o[0] == "HIRE" else 1)
     return orders[:10]  # maxMarketOrdersPerTurn default; extras would be dropped otherwise
 
 
@@ -941,19 +891,9 @@ def agent(obs):
         # exists now -- testing showed the original rate stalling real
         # herd growth well below ANIMAL_PLAN's target even with the
         # feed-coordination fix.
-        # ANIMAL-DOMINANT: aggressive bulk buying to ramp to 21 animals fast
-        # like the winner cg (who bought 12 sheep + 7 goose + 2 cow). Buy in
-        # batches whenever affordable past a small reserve, sized to the
-        # remaining target for this animal. Animals sit in the shed and get
-        # placed onto pastures/coops as they're built.
-        target_ct = dict(ANIMAL_PLAN).get(animal_pick, 0)
-        in_shed = private.get("shed", {}).get(animal_pick, 0)
-        remaining = target_ct - n_owned - in_shed
-        reserve = 200  # keep a little for melon seeds / feed
-        if remaining > 0 and money - reserve >= cost and len(market) < 10:
-            batch = min(remaining, (money - reserve) // cost, 4)
-            if batch > 0:
-                market.append(["BUY_ANIMAL", animal_pick, batch])
+        safety_margin = cost * (1 + n_owned / 2)
+        if not already_have_one and money - RESERVE >= safety_margin and len(market) < 10:
+            market.append(["BUY_ANIMAL", animal_pick, 1])
 
     return {
         "farmer": farmer_action,

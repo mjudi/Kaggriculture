@@ -759,6 +759,20 @@ confirmed and worth pushing toward the full 21-animal / $109k target
 poorly, revert to `main_best567.py` (the real best at 567.4) and treat the
 animal-dominant experiment as disproven.
 
+**RESULT (2026-08-30): the bet FAILED decisively. `55882363` scored 369.4
+public** -- the worst score of any submission this whole competition, ~198
+points below the 567.4 best and well below even the two "regressed" crop
+versions (515.3, 507.1). The single-quadrant animal-dominant build does NOT
+generalize to real ladder opponents, despite matching one real $109k `cg`
+replay. **The animal-dominant direction is now DISPROVEN on the real ladder
+-- do not revisit it without fundamentally new evidence.** Per the plan,
+`main.py` was reverted to `main_best567.py` (the 567.4 agent) and
+re-submitted. Broader lesson reinforced for the Nth time this session: a
+single spectacular replay is not a strategy -- it may be a favorable
+matchup or variance, not a reproducible edge. The crop-dominant template
+(strawberry + melon + modest cow herd + 3 quadrants, `main_best567.py`)
+remains the only thing that has ever scored well on the real ladder.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
