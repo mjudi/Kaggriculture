@@ -746,7 +746,7 @@ days of feed and never sells wheat while animals exist. Result: herd
 sustains 12 sheep + 5 goose, money climbs to ~$41k (best rebuild all
 session).
 
-**Submitted despite losing 0/20 LOCALLY to the best crop baseline** -- a
+**Submitted as `55882363` (2026-08-30) despite losing 0/20 LOCALLY to the best crop baseline** -- a
 deliberate, evidence-based bet that local testing (which has misled all
 session -- see the fifth-round `main_baseline.py` lesson) doesn't capture
 that an animal-dominant build beats crop builds on the REAL ladder, as the
