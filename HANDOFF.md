@@ -704,6 +704,61 @@ validated against something resembling the actual competitive tier,
 not just a fixed weak baseline — worth treating as the standard going
 forward, not a one-off.
 
+### Sixth round: the regression confirmed, and the PIVOT to an animal-dominant build
+
+The fifth-round submission (`55731391`, the MELON_TARGET-enforcement +
+strawberry-seed fixes) came back at **public score 515.6 -- WORSE** than
+two submissions prior (`55432490` at 567.4). A 110-game replay batch
+confirmed the plateau (42.7% real win rate) and, critically, local
+head-to-head showed the OLD best version (`main_best567.py`, from commit
+bff59e5) beats the current committed `main.py` 65% (13/7). **The last two
+submissions genuinely regressed the live ladder position.** The
+"MELON_TARGET enforcement fix" specifically hurt -- the best-scoring
+version ran melon UNcapped at 15-18, which was accidentally better than
+this agent's anemic strawberry.
+
+**The big discovery this round: there is a whole class of winners who win
+with a DENSE ANIMAL FARM and almost no crops.** Sorting winners by animal
+count found e.g. `cg` ($109,957) running **2 cow + 12 sheep + 7 goose = 21
+animals on just ONE quadrant**, ~3 strawberry, melon early then wound
+down. Income: wool 285, eggs 249, **fertilizer 432** (sold!), milk 71.
+They BUY wheat in bulk to feed (445 units) rather than growing it. This
+build sidesteps every problem that sank the crop-heavy rebuild attempts:
+no land expansion, no strawberry-seed-throughput problem, no capital split
+across many crops.
+
+Extensive effort went into a crop-heavy "match the 36-strawberry winners"
+rebuild first -- it did NOT converge. Every fix (homegrown wheat feed,
+bulk animal/seed buying, target-based crop allocation, aggressive land)
+traded one failure for another because strawberry + animals + wheat + land
+all compete for the same ~$3000 early capital. Best crop-rebuild result
+~$37k vs the baseline's ~$60k. Documented honestly rather than shipped.
+
+**The animal-dominant build (now in `main.py`) is modeled directly on
+`cg`:** `ANIMAL_PLAN = [("SHEEP", 12), ("GOOSE", 7), ("COW", 2)]`, land
+expansion disabled (1 quadrant), fertilizer sold, wheat BOUGHT in bulk
+sized to herd (not grown), melon early for startup cash. Two real feeding
+bugs fixed getting it stable: (1) the once-per-day wheat buy starved a big
+herd (it ate through before the next morning) -- now tops up any turn when
+low; (2) over-buying wheat then selling the surplus back (buy price > sell
+price) was a money leak (833 bought vs 311 sold back) -- now buys only ~2
+days of feed and never sells wheat while animals exist. Result: herd
+sustains 12 sheep + 5 goose, money climbs to ~$41k (best rebuild all
+session).
+
+**Submitted despite losing 0/20 LOCALLY to the best crop baseline** -- a
+deliberate, evidence-based bet that local testing (which has misled all
+session -- see the fifth-round `main_baseline.py` lesson) doesn't capture
+that an animal-dominant build beats crop builds on the REAL ladder, as the
+real $109k `cg` replay proves. Safety-checked thoroughly first (self-play
+DONE, 5/5 vs all built-ins, no crashes across seeds). **This is a genuine
+strategy bet, not a validated improvement -- the real ladder score is the
+only true test.** If it scores well, the animal-dominant direction is
+confirmed and worth pushing toward the full 21-animal / $109k target
+(goose+cow still fall short of target -- coop building lags). If it scores
+poorly, revert to `main_best567.py` (the real best at 567.4) and treat the
+animal-dominant experiment as disproven.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
