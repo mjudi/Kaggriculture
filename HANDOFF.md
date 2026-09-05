@@ -820,7 +820,7 @@ real one. Making the full keiz clone viable would require a routing rewrite,
 not tuning.
 
 **Submitted the herd-8 balanced clone as a deliberate ladder bet
-(2026-09-05)** despite losing 0/8 locally -- the user's call, reasoning that
+(2026-09-05, `56041471`)** despite losing 0/8 locally -- the user's call, reasoning that
 (a) local self-play has misled every round, (b) best567 wins locally yet
 only scores ~510 real, so local win/loss hasn't predicted ladder rank, and
 (c) the herd-8 clone's balanced profile (melon opening + strawberry ~25 +
