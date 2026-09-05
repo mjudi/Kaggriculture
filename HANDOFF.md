@@ -773,6 +773,65 @@ matchup or variance, not a reproducible edge. The crop-dominant template
 (strawberry + melon + modest cow herd + 3 quadrants, `main_best567.py`)
 remains the only thing that has ever scored well on the real ladder.
 
+### Seventh round: reverse-engineered "keiz" (top player) + built a balanced clone
+
+A fresh batch of 6 replays of the current top leaderboard player **keiz**
+(won all 6, always by a slim margin) was analyzed in depth. keiz runs a
+**balanced crop+animal PORTFOLIO** -- no single revenue source dominates:
+strawberry 31%, animals 28% combined (milk 14 + wool 13 + egg 1), wheat
+12.5%, free fertilizer 11%, early melon 10%, tomato/carrot 7%. Deterministic
+template every game: day-0 all-in to ~$0 (2 cow + 2 sheep + 12 melon + 5
+hands), melon cash engine (harvest ~day 10, money $2k->$15k), 2nd quadrant
+day 6 / 3rd day 11 (never 4th), 12 hands, ~15 animals (cow+sheep+goose)
+across ~15 pastures + 1 coop, strawberry core 25-54 tiles, diversified
+late-game (tomato/carrot as strawberry winds down). Full details in memory
+`keiz-winning-template.md`. This is the OPPOSITE lesson from the disproven
+animal-dominant build: animals work as ONE OF FOUR revenue legs, not as
+everything.
+
+**A faithful clone was built (`main_keiz.py` -> `main.py`) and it hit a real
+ARCHITECTURAL WALL that is worth recording so it isn't rediscovered.** The
+changes made (all real, all tested): melon opening (12 melon day 0, gated off
+after day 8), fixed the long-standing seed-buy bug (the batch only ever
+bought WHEAT via `eligible[0]`; now buys melon/strawberry by explicit
+priority), fast land timer (day 6/11 earliest, util>0.72 gate), 12-hand
+shortfall hiring (spread across turns so 12 HIRE don't fill the 10-order
+cap), per-unit concurrent animal delivery, day-scaled herd ramp, existential
+feed-wheat supply (buy any hour the shed drops below one day's feed for the
+herd; a starved herd otherwise SEIZES THE WHOLE WORKFORCE -- units get
+trapped cycling to an empty shed instead of planting), a per-turn build
+budget (one structure/turn, else every idle unit paves a pasture), a
+one-fetcher-per-turn fertilizer cap, and planting PROMOTED above the
+optional animal chores (CARE, fertilizer-collect) while strawberry is under
+its floor.
+
+**THE WALL: labor. 12 hands cannot service a 15-animal herd's upkeep
+(feed+care+fertilizer ~= 45 chores/day) AND plant/water a big strawberry
+core.** Direct diagnostic: herd 6 -> strawberry 40 tiles / ~$25k; herd 15 ->
+strawberry 8-19 / ~$10k, with frequent economy crashes. Every herd size
+tested (full-15 and herd-8) lost **0/8** to `main_best567.py` locally (full-15
+avg ~$10k, herd-8 avg ~$12k, vs best567's ~$53k). **Key reframe found along
+the way: `main_best567.py` ALSO only grows ~9 strawberry -- it wins locally
+with a MELON-HEAVY build (15 melon uncapped + 4 cow, dense 2-quadrant), NOT
+strawberry.** So best567 and keiz are DIFFERENT equilibria; keiz's balanced
+strawberry+herd profile simply cannot be executed by this agent's
+shed-centered job routing, which is far less labor-efficient than keiz's
+real one. Making the full keiz clone viable would require a routing rewrite,
+not tuning.
+
+**Submitted the herd-8 balanced clone as a deliberate ladder bet
+(2026-09-05)** despite losing 0/8 locally -- the user's call, reasoning that
+(a) local self-play has misled every round, (b) best567 wins locally yet
+only scores ~510 real, so local win/loss hasn't predicted ladder rank, and
+(c) the herd-8 clone's balanced profile (melon opening + strawberry ~25 +
+8-animal herd + 3 quadrants + diversified late-game) is structurally closer
+to what actually wins the real ladder than best567's melon-heavy build.
+Crash-safety verified first: ALL CLEAN across self-play + pass/random/starter
+x seeds 1-3 (11/12 wins vs built-ins, no exceptions). **If it scores below
+~510, revert `main.py` to `main_best567.py` -- the clone loses locally, so
+this is a genuine bet, not a validated improvement.** `main_keiz.py` kept as
+the clone's source of record.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
