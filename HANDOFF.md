@@ -5,6 +5,95 @@ Context for picking this up in a fresh session with no memory of how it got here
 below is what's already been tried, verified, and learned, so it doesn't get
 re-discovered the hard way a second time.
 
+---
+
+## FINAL STATE & CONCLUSIONS (read this first — 2026-09-07)
+
+**Current agent: `main.py` == `main_best567.py`** — the crop-dominant,
+melon-heavy, small-herd (4 cow) build. This is the ONLY agent that has ever
+scored in-tier on the real ladder. Its confirmed real tier is **~490-600**
+(noisy: identical code has scored 420, 486, 506, 527, 543, 554, 567, 600
+across resubmits — treat any single reading as ±60 noise, center ~510-530).
+
+**Active Kaggle pool is clean** — both latest-2 submissions are best567
+(`56075489`, `56075425`). All disproven experiments are flushed out.
+
+### What was tried to beat the ~510 tier, and the verdict on each
+
+Three distinct paths were attempted this session (Aug 30 – Sep 7). **All
+failed. best567 remains the ceiling.**
+
+1. **Animal-dominant single-quadrant build** (21 animals, sell fertilizer/
+   wool/eggs, modeled on a real $109k `cg` replay). Submitted `55882363`.
+   **Ladder score 369 → DISPROVEN.** A single spectacular replay is not a
+   strategy — it was a favorable matchup/variance.
+
+2. **keiz balanced-portfolio clone** — reverse-engineered the top ladder
+   player "keiz" (won all 6 replays): strawberry 31% + animals 28% + wheat
+   12.5% + fertilizer 11% + melon 10% + tomato/carrot 7%; melon day-0
+   opening, fast land (day 6/11), 12 hands, ~15 animals, strawberry core
+   25-54 tiles. Full template in memory `keiz-winning-template.md`. Built as
+   `main_keiz.py`, submitted `56041471`. **Ladder score 343 → DISPROVEN.**
+   It loses 0/8 to best567 LOCALLY at every herd size (6-15). Hit a hard
+   **labor ceiling**: 12 hands cannot service a 15-animal herd's upkeep AND
+   grow a big strawberry core (herd 6 → strawberry 40; herd 15 → strawberry
+   ~9). Key reframe: **best567 ALSO only grows ~9 strawberry — it wins with
+   MELON, not strawberry.** keiz and best567 are DIFFERENT equilibria.
+
+3. **Routing rewrite, Layer A (zone ownership)** — kept units in home
+   quadrants to cut cross-board movement. Built as `main_rewrite.py`.
+   **DISPROVEN by measurement:** made strawberry FALL (herd-8: 25→17) and
+   move% RISE (43→50), still 0/8 vs best567. Root cause, measured: our
+   move% (~43) already equals keiz's (37-48%), so movement was never the
+   bottleneck. The real bottleneck is spatial **PLACEMENT** (animals
+   monopolize NW, strawberry has no room) + expansion timing — not routing.
+   Rewrite STOPPED by the user. See `REWRITE_PLAN.md`.
+
+### The three durable, hard-won lessons (apply to any future work)
+
+1. **A lopsided local loss (0/8) to best567 RELIABLY predicts ladder
+   failure.** Both locally-losing bets scored the same ~350-370 band on the
+   ladder. The old "local tests mislead" caveat applies ONLY to small
+   differences vs synthetic opponents, NOT to blowout losses vs best567
+   itself. **New hard gate: any future candidate MUST win — not tie — vs
+   best567 locally (≥6/8 seeds) before submitting.** "Trust the ladder over
+   local" is off the table.
+
+2. **The engine's move-OR-act-per-turn constraint (verified in
+   `_apply_unit_action`) makes best567's small-herd/dense-melon build the
+   right equilibrium.** Every keiz-style build (big herd + big strawberry
+   across 3 quadrants) fights this constraint and loses. keiz wins the real
+   ladder with that build via spatial efficiency this agent's architecture
+   can't reproduce without a placement-first rebuild.
+
+3. **The one untested lever with a rationale is Layer B (spatial
+   placement)** — concentrate pastures into a minimal footprint / one
+   quadrant, reserve whole quadrants for dense strawberry (as keiz does:
+   7 pastures NW + 7 NE, but strawberry in all 3 quadrants). NOT pursued.
+   It still has to clear the "beat best567 locally" bar that nothing has
+   cleared. Do NOT re-attempt Layer A routing zones (disproven).
+
+### Files in the repo
+
+- `main.py` — LIVE agent (== best567). Do not change without a candidate
+  that beats it locally.
+- `main_best567.py` — the canonical fallback / source of record. Untouched.
+- `main_keiz.py` — the keiz clone (disproven). Kept as record.
+- `main_rewrite.py` — the Layer-A zone attempt (disproven). Kept as record.
+- `REWRITE_PLAN.md` — the routing rewrite plan + Layer A result.
+- `main_v1.py` — old independent reference agent (untracked).
+
+### If resuming: the honest recommendation
+
+Nothing tried this session beat best567. The competition's final-submission
+deadline is Sept 30 2026. Unless a genuinely new idea appears that can be
+shown to beat best567 LOCALLY first, the right move is to **keep best567 as
+the final submission**. A daily ladder monitor is running; it will flag only
+a real sustained slip (both active submissions below ~450), not single-read
+noise.
+
+---
+
 ## The competition
 
 Kaggle competition "Kaggriculture" — two-player farming simulation, 720 turns
