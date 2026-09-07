@@ -72,15 +72,7 @@ ANIMALS = {
 # This confirms the mechanism itself is good; it was a scale problem,
 # not a fundamentally bad idea -- raising this again should only happen
 # alongside further hand-coordination work, not on its own.
-# keiz clone: a balanced ~15-animal herd is one of four co-equal revenue
-# legs (milk+wool+egg ~= 28% of keiz's real revenue, roughly matching
-# strawberry's 31%). Mix and count taken directly from keiz's replays: cow
-# heavy (cheapest premium producer at 400, milk yields from day 8), sheep
-# for wool (500, the single highest-value animal product), one goose coop
-# for eggs. keiz flexes 14-23 total by seed; 15 is the median and the count
-# its 15-pasture + 1-coop build supports. Order matters -- cows fill first
-# (cheapest, earliest yield), then sheep, then the single goose.
-ANIMAL_PLAN = [("COW", 6), ("SHEEP", 2), ("GOOSE", 0)]
+ANIMAL_PLAN = [("COW", 4)]
 
 # CARROT and TOMATO removed from planting_priority entirely this round
 # (see that function's docstring), so their weights below are moot --
@@ -90,12 +82,6 @@ ANIMAL_PLAN = [("COW", 6), ("SHEEP", 2), ("GOOSE", 0)]
 # several diversified options -- matches a real top-10 player's replays,
 # where strawberry tile count dwarfs melon (the only other crop grown)
 # by roughly 3:1 at peak.
-# keiz clone: strawberry stays the dominant crop (3:1), but CARROT and
-# TOMATO are re-enabled (see planting_priority) as genuine late-game
-# revenue -- keiz sells both (tomato ~5%, carrot ~2% of revenue), rotating
-# them onto land that frees up as strawberry winds down days 22-29 rather
-# than leaving it idle. Weights left at 1 so they fill gaps without
-# competing with strawberry while it's still the priority.
 CROP_WEIGHT = {"WHEAT": 1, "CARROT": 1, "TOMATO": 1, "STRAWBERRY": 3, "MELON": 1}
 
 # Per-turn sell ceiling per item, so one big harvest doesn't land in a
@@ -116,35 +102,14 @@ SELL_CAP = {
 RESERVE = 30
 SEASON_DAYS = 30
 LIQUIDATION_START_DAY = SEASON_DAYS - 4   # sell harder once the season's almost over
-# Sized for the keiz-clone ANIMAL_PLAN target of ~15 animals eating ~1
-# wheat/day each. Larger than the old 4-animal buffer, but FEED is
-# once-per-day per animal (engine source), so 15 animals need only 15
-# wheat/day -- this buffer covers ~1.5 days of feed, enough headroom that
-# the once-per-day top-up buy keeps the shed from ever hitting zero
-# between mornings.
-WHEAT_FEED_BUFFER = 24
-# keiz plants exactly 12 melon on day 0, every game -- the early cash
-# engine (melon is the highest-base-price crop at 250, yields days 10-12).
-# The day-10 melon harvest is what funds keiz's expansion (money jumps
-# ~$2k -> ~$15k in a single day). Kept at 12 to match exactly; melon is
-# then gated OFF after the early window (see planting_priority) so freed
-# land converts to strawberry rather than replanting melon into a glut.
-MELON_TARGET = 12
-# After this day, plant no NEW melon -- keiz's melon count is 12 through
-# day 9 then drops to 0 by day 10 as the one-time crop is harvested out
-# and the land goes to strawberry. Melon's first_yield_day is 10, so
-# anything planted past ~day 8 barely matures before the mid-game pivot.
-MELON_CUTOFF_DAY = 8
-# Wheat is grown only as animal feed + a small surplus. Past this many
-# wheat tiles, strawberry (the dominant crop) wins the planting slot
-# instead -- keiz keeps wheat modest (peaks ~20-40 late-game as a cash-out
-# crop, but stays well under strawberry mid-game). Sized to feed a ~15
-# herd (each animal eats ~1 wheat/day; wheat yields multiple units/tile).
-WHEAT_TILE_CAP = 16
-# Strawberry gets planted ahead of everything (except melon during its
-# early window) until at least this many tiles exist -- the crop is meant
-# to dominate the field the way it does in keiz's real games (25-54 tiles).
-STRAWBERRY_FLOOR = 40
+# Sized for the current ANIMAL_PLAN target of 4 animals eating 1
+# wheat/day each -- lower than earlier attempts at a much larger herd,
+# since a smaller buffer is easier to keep topped up reliably.
+WHEAT_FEED_BUFFER = 20
+# Matches the sweet spot both a real successful opponent (15 tiles) and
+# a well-verified public notebook (4-16 tiles) independently converged
+# on -- past this, melon's steep glut curve starts crashing its own price.
+MELON_TARGET = 15
 
 LAND_COSTS = [1000, 2000, 4000]  # cost of the 2nd, 3rd, 4th quadrant, in that order
 
@@ -313,25 +278,10 @@ def planting_priority(day, money):
     all), not max_yield_day, since a late planting that still gets one
     harvest in isn't wasted even if it never reaches full yield."""
     order = [c for c in ["WHEAT"] if day + CROPS[c]["first_yield_day"] <= SEASON_DAYS]
-    # Melon is the day-0 cash engine but only through the early window --
-    # keiz plants all 12 immediately (day 0) and never replants once the
-    # one-time crop is harvested out. Gated to <= MELON_CUTOFF_DAY so freed
-    # land goes to strawberry mid-game, not back into a melon glut.
-    if day <= MELON_CUTOFF_DAY and day + CROPS["MELON"]["first_yield_day"] <= SEASON_DAYS:
+    if day >= 2 and money > 300 and day + CROPS["MELON"]["first_yield_day"] <= SEASON_DAYS:
         order.append("MELON")
-    if day >= 5 and money > 600 and day + CROPS["STRAWBERRY"]["first_yield_day"] <= SEASON_DAYS:
+    if day >= 6 and money > 800 and day + CROPS["STRAWBERRY"]["first_yield_day"] <= SEASON_DAYS:
         order.append("STRAWBERRY")
-    # TOMATO re-enabled as a mid/late ongoing crop (keiz sells ~5% of
-    # revenue as tomato). first_yield_day 8, ongoing -- worth planting
-    # from mid-game onward to backfill land as melon clears out.
-    if day >= 6 and day + CROPS["TOMATO"]["first_yield_day"] <= SEASON_DAYS:
-        order.append("TOMATO")
-    # CARROT re-enabled as a fast late-game filler (seed 20, first_yield
-    # day 2, one-time) -- keiz rotates carrot heavily days 22-29 onto land
-    # freed as strawberry winds down, since it matures fast enough to still
-    # cash out before the season ends when strawberry no longer can.
-    if day >= 18 and day + CROPS["CARROT"]["first_yield_day"] <= SEASON_DAYS:
-        order.append("CARROT")
     return order
 
 
@@ -446,25 +396,7 @@ def immediate_action(tile, seeds, day, money, want_coop, want_pasture, field_cou
             # unbounded strawberry weighting went earlier this session.
             if "MELON" in available and field_counts.get("MELON", 0) < MELON_TARGET:
                 return ["PLANT", "MELON"]
-            # keiz clone: strawberry is the dominant crop (31% of revenue,
-            # peaks 25-54 tiles). Wheat is ONLY grown as animal feed + a
-            # little surplus, so cap its tile count (past the cap it stops
-            # winning the planting slot and strawberry takes the land).
-            # Without this, wheat -- always first in planting_priority and
-            # weight 1 -- kept winning the fewest-planted sort and strawberry
-            # stalled near 6 tiles while 30 stood empty. Priority once melon
-            # is capped: strawberry first, then wheat only up to the feed
-            # cap, then tomato/carrot fillers.
-            straw_available = "STRAWBERRY" in available
-            wheat_over_cap = field_counts.get("WHEAT", 0) >= WHEAT_TILE_CAP
-            if straw_available and (wheat_over_cap or field_counts.get("STRAWBERRY", 0) < STRAWBERRY_FLOOR):
-                return ["PLANT", "STRAWBERRY"]
-            # Drop wheat from consideration once it's at its feed cap so the
-            # sorted pick below lands on strawberry/tomato/carrot instead.
-            if wheat_over_cap:
-                available = [c for c in available if c != "WHEAT"]
-            if available:
-                return ["PLANT", available[0]]
+            return ["PLANT", available[0]]
     return None
 
 
@@ -528,40 +460,29 @@ def animal_program_status(farm):
     return placed, empty_coop, empty_pasture
 
 
-def animal_total_owned(farm, private, all_inventories):
-    """Every unit of an animal the player controls right now: placed in a
-    structure, sitting in the shed waiting for delivery, or in a unit's
-    inventory mid-delivery. Buying decisions gate on this total so the herd
-    converges on ANIMAL_PLAN's target without overshooting (each shed/
-    in-flight animal still counts against the target even before it's
-    placed)."""
-    placed, _, _ = animal_program_status(farm)
-    total = dict(placed)
-    shed = private.get("shed", {})
-    for a in ANIMALS:
-        total[a] = total.get(a, 0) + shed.get(a, 0)
-    for inv in all_inventories:
-        for a in ANIMALS:
-            if inv.get(a, 0):
-                total[a] = total.get(a, 0) + inv[a]
-    return total
-
-
-def choose_animal_program(farm, private, day, all_inventories):
-    """keiz clone: which animal type to buy next, if any. Gates on TOTAL
-    owned (placed + shed + in-flight, see animal_total_owned) against
-    ANIMAL_PLAN, filling the plan in order (cows, then sheep, then the
-    goose). No in-flight lock any more -- delivery is per-unit and
-    concurrent now, so several animals can be bought and delivered at once
-    to reach keiz's ~15-herd by day 11. Hands gate lowered to 2: keiz buys
-    its first 4 animals on day 0 with only 5 hands, so a high gate would
-    stall the whole early ramp. The feed-coordination fixes (detour-via-
-    shed, carry wheat) in the main loop keep a herd this size fed."""
-    if len(farm.get("hands", [])) < 2:
+def choose_animal_program(farm, private, day, in_flight):
+    """Re-enabled: previous attempts lost against main_v1.py, a local
+    reference agent that doesn't itself run animals -- meaning that test
+    never actually validated whether animals hurt or help against the
+    build they're supposed to complement. Real replay analysis (two
+    independent top-10 leaderboard players, "Seb (allegedly)" and
+    "HealthStone") shows both running a full animal program in every
+    game sampled, averaging roughly 2.5-3x this agent's typical real
+    final money. Along the way, a real feed-coordination bug was found
+    and fixed: a unit assigned a feed job from the shared job board
+    would walk straight to the animal with an empty inventory (FEED
+    requires wheat in the *acting unit's own* inventory), arrive with
+    nothing to do, then walk all the way back to the shed for wheat and
+    back out again -- a two-trip pattern that couldn't keep pace once
+    the herd grew past a handful of animals. See the detour-via-shed
+    logic in the main job-assignment loop below."""
+    if in_flight:
         return None
-    total = animal_total_owned(farm, private, all_inventories)
+    if len(farm.get("hands", [])) < 6:
+        return None
+    placed, _, _ = animal_program_status(farm)
     for animal, target in ANIMAL_PLAN:
-        if total.get(animal, 0) < target:
+        if placed.get(animal, 0) < target:
             return animal
     return None
 
@@ -608,42 +529,9 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # repeatedly, which crashed a real test game's money from $1,973 to
     # $176 in three in-game days. Mirrors the hires_today==0 once-per-day
     # pattern already used for HIRE below.
-    # Feed-wheat top-up, sized to the ACTUAL current herd, not a flat 10.
-    # A flat 10-unit buy at the early wheat price (~$30) costs ~$300 -- an
-    # early draft spent the whole bankroll this way on day 1 and the
-    # economy never recovered. keiz grows most of its feed (it plants wheat
-    # from day 0) and only tops up a day or two of shed feed at a time.
-    # Buy just enough to cover the placed herd for ~2 days, minus what's
-    # already in the shed, and only when there's real spare cash so this
-    # never competes with keeping hands hired.
-    # Feed-wheat is EXISTENTIAL, not optional: if the shed runs dry, animals
-    # starve AND every unit assigned a feed job gets trapped cycling to an
-    # empty shed instead of planting/watering -- an early draft's whole
-    # workforce seized up this way once the 15-herd's wheat ran out, and
-    # strawberry never recovered. So buy feed ANY hour the shed drops below
-    # one full day of feed for the placed herd, with only a small cushion
-    # (feeding beats almost everything). Sized to refill ~2 days, capped so
-    # a single turn can't blow the bankroll. This is deliberately more
-    # aggressive than the old hour-0-only, big-cushion version.
-    placed_now, _, _ = animal_program_status(farm)
-    herd_size = sum(placed_now.values())
-    wheat_have = shed.get("WHEAT", 0)
-    # Only buy feed once the shed drops below one day's feed for the herd --
-    # not proactively hoarding two days' worth, which drained the early
-    # bankroll to ~$20 and starved the melon/strawberry seed buys. Grown
-    # wheat (the agent plants wheat from day 0) covers most feed; this is a
-    # top-up for the gap. Cushion is generous early (protect the crop/land
-    # capital while the herd is tiny and needs little feed) and tighter once
-    # the herd is large (feeding a big herd then genuinely is near-top
-    # priority, since a starved herd seizes up the whole workforce).
-    if herd_size > 0 and wheat_have < herd_size:
-        feed_need = (herd_size + max(6, WHEAT_FEED_BUFFER // 2)) - wheat_have
-        wheat_price = prices.get("WHEAT", 30)
-        feed_cushion = 400 if herd_size < 8 else 120
-        affordable = max(0, int((money - feed_cushion) // wheat_price)) if wheat_price else 0
-        buy_qty = min(max(0, feed_need), affordable, 12)
-        if buy_qty > 0:
-            orders.append(["BUY_PRODUCT", "WHEAT", buy_qty])
+    if (hour == 0 and (has_animals or animal_pick) and shed.get("WHEAT", 0) < WHEAT_FEED_BUFFER
+            and money - RESERVE >= prices.get("WHEAT", 25) * 10):
+        orders.append(["BUY_PRODUCT", "WHEAT", 10])
 
     # Melon seed gets first claim on the buy loop while under target,
     # same reasoning as the planting priority above -- otherwise it's
@@ -672,48 +560,19 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # Top-10 real replays don't have this problem: they backfill freed
     # land with wheat instead of leaving it idle (wheat tile count
     # climbing to 48-50 by day 26 as strawberry winds down).
-    # keiz clone: buy the RIGHT seeds, not just wheat. The old batch used
-    # eligible[0], which is always WHEAT (it's first in planting_priority),
-    # so strawberry and melon seed were never batch-bought -- the exact bug
-    # that kept this agent's strawberry near zero. Instead, buy toward an
-    # explicit priority: MELON up to its target early (the day-0 cash
-    # engine), then STRAWBERRY as the dominant crop, then WHEAT to feed the
-    # herd and backfill late, then late-game fillers. Each gets bought up to
-    # what empty land + its own cap needs, sharing the once-per-day budget.
     if hour == 0 and eligible and empty_tiles > 0:
-        # Desired seed count per crop this turn (how many we'd plant if we
-        # could), in priority order. Melon capped at its target; strawberry
-        # gets the lion's share of open land; wheat sized to feed + a little
-        # surplus; tomato/carrot fill whatever's left late.
-        n_animals_plan = sum(n for _, n in ANIMAL_PLAN)
-        want = {}
-        if "MELON" in eligible:
-            want["MELON"] = max(0, MELON_TARGET - field_counts_now.get("MELON", 0))
-        if "STRAWBERRY" in eligible:
-            want["STRAWBERRY"] = empty_tiles  # strawberry soaks up open land
-        if "WHEAT" in eligible:
-            want["WHEAT"] = max(6, n_animals_plan)  # feed crop + bootstrap
-        if "TOMATO" in eligible:
-            want["TOMATO"] = 6
-        if "CARROT" in eligible:
-            want["CARROT"] = empty_tiles
-        spend_budget = money - RESERVE
-        # Buy in priority order until the once-per-day budget or the
-        # 10-order cap runs out. Melon and strawberry first so they never
-        # get starved by wheat the way they used to.
-        for crop in ["MELON", "STRAWBERRY", "WHEAT", "TOMATO", "CARROT"]:
-            if crop not in want or len(orders) >= 9:
-                continue
-            cost = CROPS[crop]["seed_cost"]
-            have = seeds.get(crop, 0)
-            need = max(0, want[crop] - have)
-            if need <= 0 or spend_budget < cost:
-                continue
-            affordable = int(spend_budget // cost)
+        top_crop = eligible[0]
+        cost = CROPS[top_crop]["seed_cost"]
+        have = seeds.get(top_crop, 0)
+        if have < empty_tiles and money - RESERVE >= cost:
+            target_qty = empty_tiles
+            if top_crop == "MELON":
+                target_qty = min(target_qty, MELON_TARGET - field_counts_now.get("MELON", 0))
+            need = max(0, target_qty - have)
+            affordable = (money - RESERVE) // cost
             buy_qty = min(need, affordable, 10)
             if buy_qty > 0:
-                orders.append(["BUY_SEED", crop, buy_qty])
-                spend_budget -= buy_qty * cost
+                orders.append(["BUY_SEED", top_crop, buy_qty])
 
     # Same-day top-up: covers a genuine mid-day stockout (e.g. a crop
     # that only became eligible partway through the day, or demand that
@@ -747,20 +606,7 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # showed a genuine opponent running 12. Divisor lowered too so this
     # ramps faster under the more aggressive capital posture here, where
     # money gets spent down hard early rather than held back.
-    # keiz clone: 12 hands. Hands are wiped to [] at every day rollover
-    # (engine source), so the full target must be re-hired each morning --
-    # keiz issues ~7 HIRE at hour 1 and tops up the rest at hour 2, NOT all
-    # in one turn. That spread matters: 12 HIRE orders in a single turn
-    # would fill the entire maxMarketOrdersPerTurn=10 budget (HIRE is sorted
-    # first below), starving the seed-buy batch and land/animal buys. So
-    # instead of gating on hires_today==0 and issuing the whole target at
-    # once, this issues only the remaining shortfall up to a per-turn cap,
-    # letting hiring spread naturally across the first few hours of the day
-    # while leaving order slots free for everything else.
-    HIRE_PER_TURN_CAP = 6
-    target_hands = min(12, 4 + day)
-    hires_so_far = farm.get("hires_today", 0)
-    if hires_so_far < target_hands and money - RESERVE >= 50:
+    if farm.get("hires_today", 0) == 0 and money - RESERVE >= 50:
         # Tied to elapsed days instead of momentary cash, and ramps much
         # faster: a large sample of 24 real ladder games showed hand
         # count never breaking 7 even by day 27 under the old
@@ -772,14 +618,19 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
         # that it shouldn't be gated this conservatively once the
         # earliest days are past.
         #
-        # Issue only the remaining shortfall this turn, capped per turn so
-        # HIRE never floods the 10-order budget. On a fresh morning
-        # (hires_today==0) this puts HIRE_PER_TURN_CAP hires down now and
-        # the rest fire on the next turn(s) until target_hands is reached,
-        # since hires_today persists within the day. Matches keiz's real
-        # split of ~7 at h1 + the remainder at h2.
-        want = min(HIRE_PER_TURN_CAP, target_hands - hires_so_far)
-        for _ in range(want):
+        # Capped at 8, not 12: HIRE is sorted first before the final
+        # orders[:10] truncation (see below), which fixed HIRE being
+        # starved by other orders, but created the opposite problem --
+        # 12 HIRE orders alone fill the *entire* 10-slot turn budget,
+        # leaving zero room for anything else on hour 0 specifically.
+        # Confirmed directly: the once-per-day seed-buy batch below
+        # never fired on any real hour-0 turn once hands neared this
+        # cap, because HIRE alone had already consumed every slot.
+        # Capping at 8 still comfortably covers real top-10 replay data
+        # (observed hand counts ranged 3-14, frequently well under 12)
+        # while leaving room for other hour-0-gated purchases.
+        target_hands = min(8, 4 + day)
+        for _ in range(target_hands):
             orders.append(["HIRE"])
 
     unlocked = farm.get("unlocked_quadrants", ["NW"])
@@ -791,20 +642,11 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
     # fix, and the strawberry-dominant crop mix all existing -- worth
     # re-testing with the stronger baseline rather than assuming either
     # conclusion still holds without checking.
-    # keiz clone: land on a fixed timer, not a utilization gate. keiz buys
-    # the 2nd quadrant on day 6 and the 3rd on day 11, every game,
-    # deterministically -- far faster than this agent's old day-18-22
-    # average. The melon cash engine (harvest ~day 10) is what funds the
-    # 3rd; the 2nd is bought on the strength of the day-0 all-in plus early
-    # wheat/melon sales. A light utilization floor still avoids buying land
-    # there's genuinely no workforce to touch yet.
-    KEIZ_LAND_DAY = {1: 6, 2: 11}  # {quadrants_already_owned: earliest day to buy next}
     if len(unlocked) < 3:
         next_cost = LAND_COSTS[len(unlocked) - 1]
         tiles = list(unlocked_tiles(farm))
         occupied = sum(1 for _, _, t in tiles if t is not None)
         utilization = occupied / len(tiles) if tiles else 0
-        earliest_day = KEIZ_LAND_DAY.get(len(unlocked), 99)
         # Disabled, tested directly: staying on the single starting
         # quadrant and running the same 4 hands in a tighter space beat
         # buying a second quadrant on 9 of 10 seeds, sometimes by a lot
@@ -828,20 +670,7 @@ def build_market_orders(farm, private, day, hour, prices, has_animals, animal_pi
         # something is planted and grown on it, and buying it too early
         # competes with hiring for the same early capital -- the same
         # failure mode this file already found the hard way with animals.
-        # Fixed-timer buy: once the earliest day is reached and the current
-        # quadrant is reasonably full (0.6 floor, looser than the old 0.7 --
-        # keiz commits on the timer even before the prior quadrant is
-        # saturated), buy as soon as capital allows. The RESERVE-only cash
-        # gate (no extra cushion) matches keiz spending aggressively toward
-        # land the moment the melon money lands.
-        # Utilization floor raised to 0.85: buying the next quadrant while
-        # the current one is only ~60% full left 40+ tiles idle across two
-        # quadrants that 12 units couldn't service (strawberry stalled while
-        # land sat empty). Only expand once the current land is genuinely
-        # near-full, so the workforce actually fills new land instead of
-        # spreading thin. Keeps keiz's day-timer as an EARLIEST bound, but
-        # utilization is the real trigger.
-        if day >= earliest_day and utilization > 0.72 and money - RESERVE >= next_cost:
+        if day >= 4 and utilization > 0.7 and money - RESERVE >= next_cost:
             orders.append(["BUY_LAND"])
 
     # HIRE sorted to the front before the maxMarketOrdersPerTurn cap below,
@@ -881,34 +710,19 @@ def agent(obs):
         isinstance(t, dict) and t.get("kind") in ("COOP", "PASTURE") and t.get("animal")
         for _, _, t in tiles
     )
-    animal_pick = choose_animal_program(farm, private, day, inventories)
-    # keiz clone: build structures AHEAD of the herd, up to the plan's
-    # totals, so several animals can be delivered concurrently into ready
-    # structures. keiz has ~15 pastures + 1 coop built by day 11 -- well
-    # ahead of the animals that fill them. Count structures already built
-    # (filled or empty) and keep building until each type reaches its plan
-    # total. Building is free (engine source), so the only cost of building
-    # ahead is the tile, which is exactly what the herd needs anyway.
-    pasture_target = sum(n for a, n in ANIMAL_PLAN if ANIMALS[a]["structure"] == "PASTURE")
-    coop_target = sum(n for a, n in ANIMAL_PLAN if ANIMALS[a]["structure"] == "COOP")
-    n_pastures = sum(1 for _, _, t in tiles if isinstance(t, dict) and t.get("kind") == "PASTURE")
-    n_coops = sum(1 for _, _, t in tiles if isinstance(t, dict) and t.get("kind") == "COOP")
-    # Build structures just BARELY ahead of the herd, tied to the same
-    # day-scaled ramp the animal buy uses (see below), NOT to a fixed lead.
-    # An early draft with an "owned + 3" lead paved 9 pastures on day 0 and
-    # crowded out the 12-melon opening. keiz's measured build: 4 pastures by
-    # end of day 0 (for 4 animals), 6 by day 1 -- structures track the herd
-    # about +2 ahead. The coop is only built once GOOSE is actually the
-    # current pick (keiz builds its single coop ~day 10, not before).
-    total_owned = animal_total_owned(farm, private, inventories)
-    herd_now = total_owned.get("COW", 0) + total_owned.get("SHEEP", 0) + total_owned.get("GOOSE", 0)
-    herd_cap_today = min(pasture_target + coop_target, 4 + max(0, day))
-    building_active = len(farm.get("hands", [])) >= 2
-    # Pasture lead capped at the day's herd cap + 2, so we never build more
-    # than the ramp will fill soon.
-    want_pasture = (building_active and n_pastures < pasture_target
-                    and n_pastures < min(pasture_target, herd_cap_today + 2))
-    want_coop = (building_active and animal_pick == "GOOSE" and n_coops < coop_target)
+    deliver_animal, deliver_target = find_delivery_job(farm, private, inventories)
+    animal_pick = choose_animal_program(farm, private, day, in_flight=(deliver_animal is not None))
+    # Building is gated separately from buying, on purpose: an empty
+    # structure already sitting there is exactly what blocks a *build*
+    # (no need for a second one yet), the opposite of what blocks a
+    # *purchase* (which needs one sitting empty and ready). Conflating
+    # them let every idle unit build its own pasture in the same burst
+    # -- confirmed directly, 17+ empty pastures existed by day 2 when
+    # only 2 cows had ever actually been bought, land wasted on
+    # structures with nothing in them instead of growing anything.
+    _, empty_coop_now, empty_pasture_now = animal_program_status(farm)
+    want_coop = animal_pick == "GOOSE" and not empty_coop_now
+    want_pasture = animal_pick in ("COW", "SHEEP") and not empty_pasture_now
 
     # One shared roster: farmer first, then each hand, in order. Farmer
     # gets index 0 into private["inventories"]; hands get 1, 2, ...
@@ -923,14 +737,6 @@ def agent(obs):
     claimed = {pos for _, pos, _ in units}
     actions = {}
 
-    # Per-turn claims for concurrent animal delivery (keiz clone): which
-    # empty structures a unit has already been routed to this turn, and how
-    # many of each shed animal have been spoken for -- so multiple units can
-    # deliver different animals at once without two of them fetching the
-    # same shed unit or converging on the same empty pasture.
-    claimed_structures = set()
-    shed_animals_claimed = {}
-
     # Mutable, turn-local copy: decremented as units claim a PLANT this
     # turn so a second unit standing on a *different* empty tile doesn't
     # also reach for the same scarce seed. The engine's "plant too many
@@ -944,82 +750,39 @@ def agent(obs):
     fert_targets_exist = any(needs_fertilizer(t, day) for _, _, t in tiles)
     shed_fertilizer = private.get("shed", {}).get("FERTILIZER", 0)
 
-    # At most one structure of each kind built per turn (see the build
-    # decrement in the loop) -- keeps building paced to ~1-2/day like keiz
-    # instead of every idle unit paving a pasture the same turn.
-    build_budget = {"PASTURE": 1, "COOP": 1}
-    # At most one unit per turn goes to fetch fertilizer (see the fert-fetch
-    # block) so the rest stay on planting/watering.
-    fert_fetch_budget = [1]
-
     for name, pos, inv in units:
         fx, fy = pos
         tile = tile_at(farm, fx, fy)
 
-        act = immediate_action(tile, seeds_remaining, day, money,
-                                want_coop and build_budget["COOP"] > 0,
-                                want_pasture and build_budget["PASTURE"] > 0,
+        act = immediate_action(tile, seeds_remaining, day, money, want_coop, want_pasture,
                                 field_counts=field_counts, own_inventory=inv)
         if act is not None:
             if isinstance(act, list) and act[0] == "PLANT":
                 seeds_remaining[act[1]] = seeds_remaining.get(act[1], 0) - 1
                 field_counts[act[1]] = field_counts.get(act[1], 0) + 1
-            # Only ONE structure of each kind may be built per turn -- every
-            # idle unit standing on a plantable tile would otherwise build
-            # its own in the same turn (an early draft paved 9 pastures on
-            # day 0 this way). Decrement the turn-local budget so subsequent
-            # units this turn fall through to real fieldwork instead.
-            elif act == "BUILD_PASTURE":
-                build_budget["PASTURE"] -= 1
-            elif act == "BUILD_COOP":
-                build_budget["COOP"] -= 1
             actions[name] = act
             continue
 
-        # Animal delivery, per-unit (keiz clone): concurrent delivery is
-        # what lets the herd reach ~15 by day 11 like keiz. First, if THIS
-        # unit is already carrying an animal, finish placing it into a
-        # not-yet-claimed empty structure. Otherwise, if animals wait in
-        # the shed and an empty structure is free, claim one and go fetch.
-        # `claimed_structures` prevents two units targeting the same empty
-        # pasture/coop this turn. Replaces the old single-in-flight
-        # bottleneck (one animal delivered at a time), which capped how
-        # fast the herd could grow far below keiz's pace.
-        carried_animal = next((a for a in ANIMALS if inv.get(a, 0) > 0), None)
-        if carried_animal:
-            info = ANIMALS[carried_animal]
-            spot = None
-            for x, y, t in tiles:
-                if (isinstance(t, dict) and t.get("kind") == info["structure"]
-                        and not t.get("animal") and (x, y) not in claimed_structures):
-                    spot = (x, y); break
-            if spot:
-                claimed_structures.add(spot)
-                tx, ty = spot
+        # Animal delivery (pick up from shed, carry, place): open to any
+        # unit now, not farmer-only -- with up to 14 animals to deliver
+        # over the game, restricting this to one unit would make it the
+        # bottleneck. Safe because only one animal is ever in flight at
+        # once (see choose_animal_program). Checks the shed still has a
+        # unit of it before walking over, so a unit doesn't make a
+        # pointless trip if another unit already grabbed the only one
+        # available this turn.
+        if deliver_animal and deliver_target:
+            tx, ty, _ = deliver_target
+            carrying = inv.get(deliver_animal, 0) > 0
+            if carrying:
                 if (fx, fy) == (tx, ty):
-                    actions[name] = ["PLACE", carried_animal, 1]
+                    actions[name] = ["PLACE", deliver_animal, 1]
                 else:
                     actions[name] = step_toward(fx, fy, tx, ty)
                 continue
-        else:
-            shed = private.get("shed", {})
-            fetch = None
-            for x, y, t in tiles:
-                if not isinstance(t, dict):
-                    continue
-                k = t.get("kind")
-                if k in ("PASTURE", "COOP") and not t.get("animal") and (x, y) not in claimed_structures:
-                    for a, info in ANIMALS.items():
-                        if info["structure"] == k and shed.get(a, 0) - shed_animals_claimed.get(a, 0) > 0:
-                            fetch = (a, (x, y)); break
-                if fetch:
-                    break
-            if fetch:
-                a, spot = fetch
-                claimed_structures.add(spot)
-                shed_animals_claimed[a] = shed_animals_claimed.get(a, 0) + 1
+            elif private.get("shed", {}).get(deliver_animal, 0) > 0:
                 if is_shed_adjacent((fx, fy), board_size):
-                    actions[name] = ["PICKUP", a, 1]
+                    actions[name] = ["PICKUP", deliver_animal, 1]
                 else:
                     sx, sy, _ = nearest(fx, fy, [(x, y, None) for x, y in shed_access_tiles(board_size)])
                     actions[name] = step_toward(fx, fy, sx, sy)
@@ -1040,18 +803,12 @@ def agent(obs):
                 actions[name] = step_toward(fx, fy, sx, sy)
             continue
 
-        # Fertilizer fetch: STRICTLY capped to one unit per turn (keiz
-        # clone). An early draft let every idle unit fetch fertilizer at
-        # once -- with 19 units of fertilizer sitting in the shed and crops
-        # that could use it, the whole workforce cycled to the shed and back
-        # every turn, leaving strawberry planting (30 empty tiles) and even
-        # watering starved. Applying fertilizer is a yield nicety, not worth
-        # pulling units off planting/watering; one fetcher at a time is
-        # plenty. Selling the fertilizer surplus (11% of keiz's revenue) is
-        # handled separately in build_market_orders and is unaffected.
-        if (fert_fetch_budget[0] > 0 and inv.get("FERTILIZER", 0) == 0
-                and shed_fertilizer > 0 and fert_targets_exist):
-            fert_fetch_budget[0] -= 1
+        # Fertilizer fetch: any idle unit can run this, not just the
+        # farmer -- there's no build-then-place sequence here, just carry
+        # and apply, so it's fine for several units to do in parallel.
+        # Only bothers if there's actually something on the field that
+        # would benefit right now, so nobody makes a pointless shed trip.
+        if inv.get("FERTILIZER", 0) == 0 and shed_fertilizer > 0 and fert_targets_exist:
             if is_shed_adjacent((fx, fy), board_size):
                 actions[name] = ["PICKUP", "FERTILIZER", 5]
             else:
@@ -1061,45 +818,18 @@ def agent(obs):
 
         # Claim the nearest not-yet-claimed job on the shared board this
         # turn, highest priority tier first, and head toward it.
-        # Feed jobs are ONLY offered when wheat is actually obtainable
-        # (this unit carries some, or the shed has some) -- otherwise a
-        # feed job just traps the unit cycling to an empty shed forever
-        # (a real seize-up found with the 15-herd once its wheat ran dry),
-        # so when there's no wheat at all, skip feed entirely and let the
-        # unit do fieldwork it CAN complete.
-        wheat_obtainable = inv.get("WHEAT", 0) > 0 or private.get("shed", {}).get("WHEAT", 0) > 0
-        # keiz clone: when the field is under-planted (strawberry still below
-        # its floor and open land exists), PLANTING is promoted above the
-        # OPTIONAL animal chores -- CARE (a yield bonus, not survival) and
-        # free-fertilizer COLLECT. The binding constraint on matching keiz's
-        # ~50-strawberry core is labor: a 15-animal herd's care+fertilizer
-        # upkeep otherwise consumes the whole workforce and strawberry stalls
-        # near 9 tiles while 25 sit empty. Survival-critical work (feed,
-        # decay-urgent harvest, water) still outranks planting; only the
-        # discretionary animal chores yield to it, and only while the field
-        # is still being built out. Once strawberry is established, the
-        # normal order resumes so the bonus/fertilizer value is recovered.
-        underplanted = (field_counts.get("STRAWBERRY", 0) < STRAWBERRY_FLOOR
-                        and any(is_plantable(t) for _, _, t in tiles)
-                        and seeds_remaining.get("STRAWBERRY", 0) > 0)
-        feed_pool = ([(x, y, t) for x, y, t in tiles if needs_feed(t) and (x, y) not in claimed]
-                     if wheat_obtainable else [])
-        cropmax = [(x, y, t) for x, y, t in tiles if crop_maxed(t) and (x, y) not in claimed]
-        urgent = [(x, y, t) for x, y, t in tiles if crop_urgent(t, day) and (x, y) not in claimed]
-        animalmax = [(x, y, t) for x, y, t in tiles if animal_maxed(t) and (x, y) not in claimed]
-        water = [(x, y, t) for x, y, t in tiles if needs_water(t) and (x, y) not in claimed]
-        care = [(x, y, t) for x, y, t in tiles if needs_care(t) and (x, y) not in claimed]
-        harvest = [(x, y, t) for x, y, t in tiles if ready_to_harvest(t, day) and (x, y) not in claimed]
-        fert = [(x, y, t) for x, y, t in tiles if has_fertilizer_to_collect(t) and (x, y) not in claimed]
-        weed = [(x, y, t) for x, y, t in tiles if is_weed(t) and (x, y) not in claimed]
-        plant = [(x, y, t) for x, y, t in tiles if is_plantable(t) and (x, y) not in claimed]
-        if underplanted:
-            # feed > decay-urgent > water > harvest > PLANT > care > fert > ...
-            pool = (feed_pool or cropmax or urgent or animalmax or water
-                    or harvest or plant or care or fert or weed)
-        else:
-            pool = (feed_pool or cropmax or urgent or animalmax or water
-                    or care or harvest or fert or weed or plant)
+        pool = (
+            [(x, y, t) for x, y, t in tiles if needs_feed(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if crop_maxed(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if crop_urgent(t, day) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if animal_maxed(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if needs_water(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if needs_care(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if ready_to_harvest(t, day) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if has_fertilizer_to_collect(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if is_weed(t) and (x, y) not in claimed]
+            or [(x, y, t) for x, y, t in tiles if is_plantable(t) and (x, y) not in claimed]
+        )
         target = nearest(fx, fy, pool)
         if target:
             tx, ty, target_tile = target
@@ -1119,18 +849,11 @@ def agent(obs):
             # via the shed first if not already carrying wheat, same
             # pattern as the direct-pickup case above.
             if needs_feed(target_tile) and inv.get("WHEAT", 0) == 0:
-                # Only detour to the shed if it actually has wheat -- the
-                # pool guard above should already prevent a feed job with an
-                # empty shed, but guard here too so a unit never walks to an
-                # empty shed and loops.
-                if private.get("shed", {}).get("WHEAT", 0) > 0:
-                    if is_shed_adjacent((fx, fy), board_size):
-                        actions[name] = ["PICKUP", "WHEAT", 5]
-                    else:
-                        sx, sy, _ = nearest(fx, fy, [(x, y, None) for x, y in shed_access_tiles(board_size)])
-                        actions[name] = step_toward(fx, fy, sx, sy)
+                if is_shed_adjacent((fx, fy), board_size) and private.get("shed", {}).get("WHEAT", 0) > 0:
+                    actions[name] = ["PICKUP", "WHEAT", 5]
                 else:
-                    actions[name] = "PASS"
+                    sx, sy, _ = nearest(fx, fy, [(x, y, None) for x, y in shed_access_tiles(board_size)])
+                    actions[name] = step_toward(fx, fy, sx, sy)
             else:
                 actions[name] = step_toward(fx, fy, tx, ty)
         else:
@@ -1146,50 +869,31 @@ def agent(obs):
         hand_actions.append(a if isinstance(a, list) else [a])
 
     market = build_market_orders(farm, private, day, obs["hour"], prices, has_animals, animal_pick)
-    if animal_pick and len(market) < 10:
-        # keiz clone: pace the herd against a day-scaled ramp, NOT a
-        # per-turn batch. The buy check fires every one of the 24 turns in a
-        # day, so any per-turn allowance multiplies into a runaway buy
-        # (an early draft bought 6 cows on day 0 and the economy never
-        # recovered). Instead, cap the TOTAL herd to a target that grows
-        # with the day -- keiz's real curve is ~4 animals by day 0, ~8 by
-        # day 6, ~13-15 by day 11 -- and only buy while under that day's
-        # cap. This makes the buy self-limiting regardless of how many turns
-        # fire, and matches keiz's measured ramp.
-        total = animal_total_owned(farm, private, inventories)
-        herd_now = sum(total.get(a, 0) for a, _ in ANIMAL_PLAN)
-        plan_total = sum(n for _, n in ANIMAL_PLAN)
-        # Ramp gently at first so the day-0 bankroll isn't blown on animals
-        # before any crop income exists (an early draft bought 4 cows on
-        # day 0 = $1600, crashed the economy, and the whole herd starved by
-        # day 6 once hands could no longer be afforded). Start at 2, add
-        # ~1/day, reaching plan_total (~15) by ~day 13. Slightly slower than
-        # keiz's day-11, but the melon cash engine (day 10) needs to land
-        # before the herd can be pushed hard without starving hands.
-        herd_cap = min(plan_total, 2 + max(0, day))
+    if animal_pick and not deliver_animal:
+        placed, _, _ = animal_program_status(farm)
+        n_owned = placed.get(animal_pick, 0)
+        already_have_one = private.get("shed", {}).get(animal_pick, 0) > 0
         cost = ANIMALS[animal_pick]["cost"]
-        structure = ANIMALS[animal_pick]["structure"]
-        remaining_to_target = 0
-        for a, tgt in ANIMAL_PLAN:
-            if a == animal_pick:
-                remaining_to_target = tgt - total.get(a, 0)
-                break
-        # Only buy into empty structures ready to receive an animal, net of
-        # any already in the shed/in-flight heading there.
-        empty_structs = sum(1 for _, _, t in tiles
-                            if isinstance(t, dict) and t.get("kind") == structure
-                            and not t.get("animal"))
-        in_transit = private.get("shed", {}).get(animal_pick, 0) + sum(
-            inv.get(animal_pick, 0) for inv in inventories)
-        placeable_now = max(0, empty_structs - in_transit)
-        # Generous working-capital cushion so the herd build never starves
-        # seeds/feed/land -- larger than one animal's cost on purpose.
-        ANIMAL_RESERVE = 400
-        affordable = max(0, int((money - ANIMAL_RESERVE) // cost)) if cost else 0
-        headroom = max(0, herd_cap - herd_now)
-        buy_n = min(remaining_to_target, placeable_now, affordable, headroom)
-        if buy_n > 0:
-            market.append(["BUY_ANIMAL", animal_pick, buy_n])
+        # Grows with how many of this animal are already owned, not a
+        # flat threshold -- buying straight through the full ANIMAL_PLAN
+        # target with only a flat gate crashed the whole economy on an
+        # earlier test: money never recovered above $500 for the rest of
+        # a 30-day game after 7 cows in a row, since hand-scaling drew
+        # from the same pool and got starved. This paces each successive
+        # purchase to require real spare capital, not just enough to
+        # clear a fixed bar regardless of how many are already owned.
+        # Growth rate loosened from cost*(2+n_owned) to cost*(1+n_owned/2)
+        # this round: that original crash predates both the HIRE-order-
+        # starvation fix (hand-scaling no longer actually competes with
+        # this for the same market-order slots) and the strawberry-
+        # dominant crop mix (meaningfully more cash available), so the
+        # original margin was tuned against a much weaker economy than
+        # exists now -- testing showed the original rate stalling real
+        # herd growth well below ANIMAL_PLAN's target even with the
+        # feed-coordination fix.
+        safety_margin = cost * (1 + n_owned / 2)
+        if not already_have_one and money - RESERVE >= safety_margin and len(market) < 10:
+            market.append(["BUY_ANIMAL", animal_pick, 1])
 
     return {
         "farmer": farmer_action,
