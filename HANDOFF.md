@@ -7,13 +7,43 @@ re-discovered the hard way a second time.
 
 ---
 
-## FINAL STATE & CONCLUSIONS (read this first — 2026-09-07)
+## FINAL STATE & CONCLUSIONS (read this first — updated 2026-09-07)
 
-**Current agent: `main.py` == `main_best567.py`** — the crop-dominant,
-melon-heavy, small-herd (4 cow) build. This is the ONLY agent that has ever
-scored in-tier on the real ladder. Its confirmed real tier is **~490-600**
-(noisy: identical code has scored 420, 486, 506, 527, 543, 554, 567, 600
-across resubmits — treat any single reading as ±60 noise, center ~510-530).
+**Current agent: `main.py` == `main_v2.py`** (submitted 2026-09-07 as a bet).
+v2 = best567 + two fixes: (1) every-other-day watering for ongoing crops
+(strawberry/tomato only water at consecutive_unwatered>=1 — verified safe,
+frees labor), (2) FIXED strawberry seed-buying (best567's old batch used
+`top_crop=eligible[0]` which is always WHEAT, so strawberry seed sat at 0-1
+all game and 34-45 tiles sat EMPTY late — v2 buys melon/strawberry/wheat by
+explicit priority to FILL the board), plus a land gate raised 0.7->0.82.
+Local result vs best567: avg ~$34.5k vs best567's ~$36.7k (near parity, 1/8
+wins but most losses within ~5%), a ~3x improvement over every keiz-clone
+attempt (~$12k). Crash-safe. **This is a MEASURED bet, not a proven win:**
+v2 doesn't clear the "win 6/8 locally" gate, but (a) best567 is only rank
+~5,647/8,026 so matching it locally proves little, (b) v2's losses are ~5%
+not blowouts (unlike the disproven bets that lost 0/8 by 5:1), and (c) v2
+does what real ladder WINNERS do — fills idle land instead of wasting ~45%
+of the board. **`main_best567.py` remains the fallback** — if v2 scores
+below ~490, revert to it.
+
+### CRITICAL CONTEXT discovered 2026-09-07 (see memory `real-leaderboard-position`)
+
+The whole session optimized in a ~340-600 bubble and wrongly concluded
+"best567 is the ceiling." **REALITY: the live leaderboard (8,026 teams) goes
+to 2,868; median is 784; the user's best567 is rank ~5,647 (score 514) —
+BOTTOM THIRD.** best567 is a WEAK agent with huge headroom above it, not a
+ceiling. Verified from real Kaggle episodes: best567 goes ~2W-3L vs real
+opponents, and coins DO decide games (it loses to opponents earning $42-43k
+while it earns $30-38k). The winning opponents use diverse recipes
+(animal-heavy, single-quad-minimal, crop-heavy) but ALL fill their land
+(<10 empty tiles) — which is exactly what v2's fill fix targets. Board size
+is CONFIRMED 10x10 / 5x5 quadrants / 100 tiles (real episode + engine
+v1.32.6-7); the ocean240812 strategy-guide notebook's 16x16 claim is WRONG
+for this competition — ignore its tile-count numbers.
+
+**Prior framing (now known to be bubble-relative, kept for history):** best567's
+"real tier ~490-600" is only its score against the field it gets matched with;
+it is NOT a strong absolute number.
 
 **Active Kaggle pool is clean** — both latest-2 submissions are best567
 (`56075489`, `56075425`). All disproven experiments are flushed out.
