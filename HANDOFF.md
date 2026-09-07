@@ -832,6 +832,17 @@ x seeds 1-3 (11/12 wins vs built-ins, no exceptions). **If it scores below
 this is a genuine bet, not a validated improvement.** `main_keiz.py` kept as
 the clone's source of record.
 
+**RESULT (2026-09-06/07): the clone bet FAILED. `56041471` scored 361.4 then
+drifted to 343.7** -- nearly identical to the disproven animal-dominant build
+(369.4), and ~140 below the best567 tier. **Second confirmation that a
+LOPSIDED local loss (0/8 vs best567) DOES predict ladder failure** -- the
+"local tests mislead" lesson applies only to SMALL differences vs SYNTHETIC
+opponents, NOT to a 5:1 blowout against best567 itself. Reverted main.py to
+main_best567.py and flushed the clone from the active pool (revert `56075425`,
+2026-09-07). The keiz balanced-portfolio template is DISPROVEN as a clone in
+this architecture -- do not resubmit it. main_best567.py (~490-547 tier)
+remains the only agent that scores in-tier on the real ladder.
+
 ## Testing workflow
 
 `kaggle-environments` is a real pip package (`pip install -U
