@@ -9,7 +9,7 @@ re-discovered the hard way a second time.
 
 ## FINAL STATE & CONCLUSIONS (read this first — updated 2026-09-07)
 
-**Current agent: `main.py` == `main_v2.py`** (submitted 2026-09-07 as a bet).
+**Current agent: `main.py` == `main_v2.py`** (submitted 2026-09-07 as `56083192`).
 v2 = best567 + two fixes: (1) every-other-day watering for ongoing crops
 (strawberry/tomato only water at consecutive_unwatered>=1 — verified safe,
 frees labor), (2) FIXED strawberry seed-buying (best567's old batch used
